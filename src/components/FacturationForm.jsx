@@ -2,14 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { CLIENTS, PRODUITS, getNextNumero } from '../data/mockData';
+import { COMPANY_DATA } from '../data/companyData'; // <-- IMPORT AJOUTÉ
 import FacturePDF from './FacturePDF';
 
-export default function FacturationForm({ user }) {
+export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
   // --- ÉTATS ---
-  const [typeDoc, setTypeDoc] = useState('Facture');
+  const [typeDoc, setTypeDoc] = useState(typeParDefaut);
   const [numeroDoc, setNumeroDoc] = useState('');
   const [clientSelectionne, setClientSelectionne] = useState('');
   const [objet, setObjet] = useState('');
+  const [modePaiement, setModePaiement] = useState('Virement'); // <-- NOUVEAU
   const [produitSelectionne, setProduitSelectionne] = useState('');
   const [quantite, setQuantite] = useState(1);
   const [panier, setPanier] = useState([]);
@@ -56,10 +58,11 @@ export default function FacturationForm({ user }) {
   
   const clientInfo = CLIENTS.find(c => c.nom === clientSelectionne);
 
+  // --- DONNÉES POUR LE PDF ---
   const pdfData = {
     numeroDoc, typeDoc, client: clientSelectionne, clientInfo, objet,
-    dateFormatee, heureFormatee, panier,
-    sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
+    dateFormatee, heureFormatee, modePaiement, // <-- AJOUT
+    panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
   // --- FONCTION D'EXPORT PDF ---
@@ -68,22 +71,17 @@ export default function FacturationForm({ user }) {
     setIsGenerating(true);
 
     try {
-      // 1. On capture le composant HTML en image PNG
       const dataUrl = await toPng(componentRef.current, { 
         quality: 1, 
-        pixelRatio: 2, // Haute résolution
+        pixelRatio: 2, 
         backgroundColor: '#ffffff' 
       });
 
-      // 2. On crée un PDF A4
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (componentRef.current.offsetHeight * pdfWidth) / componentRef.current.offsetWidth;
 
-      // 3. On ajoute l'image au PDF
       pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
-
-      // 4. On télécharge le fichier
       pdf.save(`${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`);
     } catch (error) {
       console.error("Erreur de génération PDF:", error);
@@ -99,7 +97,6 @@ export default function FacturationForm({ user }) {
       alert("Le numéro de téléphone du client n'est pas renseigné.");
       return;
     }
-    // Nettoyage du numéro (on enlève les espaces, +, etc.)
     const telNettoye = clientInfo.tel.replace(/\D/g, '');
     const message = `Bonjour, voici votre ${typeDoc.toLowerCase()} N° ${numeroDoc} d'un montant de ${formatMonnaie(netAPayer)}. Cordialement, ${COMPANY_DATA.sigle}.`;
     window.open(`https://wa.me/${telNettoye}?text=${encodeURIComponent(message)}`, '_blank');
@@ -126,22 +123,35 @@ export default function FacturationForm({ user }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Type de document</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Type</label>
               <div className="flex gap-2">
                 <button onClick={() => setTypeDoc('Facture')} className={`flex-1 py-2 rounded-lg border font-medium text-sm transition ${typeDoc === 'Facture' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Facture</button>
                 <button onClick={() => setTypeDoc('Devis')} className={`flex-1 py-2 rounded-lg border font-medium text-sm transition ${typeDoc === 'Devis' ? 'bg-amber-50 border-amber-500 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Devis</button>
               </div>
             </div>
+            
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Client</label>
               <select value={clientSelectionne} onChange={(e) => setClientSelectionne(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                <option value="">-- Sélectionner un client --</option>
+                <option value="">-- Sélectionner --</option>
                 {CLIENTS.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
               </select>
             </div>
-            <div className="md:col-span-2">
+
+            {/* NOUVEAU CHAMP MODE DE PAIEMENT */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Mode de paiement</label>
+              <select value={modePaiement} onChange={(e) => setModePaiement(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <option value="Virement">Virement Bancaire</option>
+                <option value="Chèque">Chèque</option>
+                <option value="Espèces">Espèces</option>
+                <option value="Carte Bancaire">Carte Bancaire</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-3">
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Objet de la prestation</label>
               <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex: Soirée de gala..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
