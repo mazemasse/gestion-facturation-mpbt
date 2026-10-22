@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Application de la police Inter partout */
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* On augmente légèrement l'espacement des lettres pour la lisibilité */
+  body {
+    letter-spacing: 0.01em;
+  }
+}
+
+/* Règles pour l'impression du PDF */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
