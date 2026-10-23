@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { countries } from 'countries-list';
-import { supabase } from '../lib/supabaseClient'; // <-- IMPORT SUPABASE
+import { supabase } from '../lib/supabaseClient';
 
 export default function ClientsPage() {
   // --- ÉTATS ---
@@ -10,20 +10,12 @@ export default function ClientsPage() {
   const [recherche, setRecherche] = useState('');
   const [clientEnEdition, setClientEnEdition] = useState(null);
 
-  // --- CHARGEMENT DES DONNÉES DEPUIS SUPABASE ---
+  // --- CHARGEMENT DES DONNÉES ---
   const chargerClients = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('nom', { ascending: true });
-
-    if (error) {
-      console.error("Erreur de chargement:", error);
-      alert("Impossible de charger les clients.");
-    } else {
-      setClients(data || []);
-    }
+    const { data, error } = await supabase.from('clients').select('*').order('id');
+    if (error) console.error(error);
+    else setClients(data || []);
     setIsLoading(false);
   };
 
@@ -46,6 +38,8 @@ export default function ClientsPage() {
   const [nouveauClient, setNouveauClient] = useState({
     type: 'Etablissement', nom: '', contact: '', tel: '', email: '', adresse: '', ville: '', pays: 'Senegal',
   });
+  
+  const [numeroLocal, setNumeroLocal] = useState('');
 
   const indicatifActuel = listePays.find(p => p.nom === nouveauClient.pays)?.indicatif || '+221';
   const isEtablissement = nouveauClient.type === 'Etablissement';
@@ -59,71 +53,71 @@ export default function ClientsPage() {
   };
 
   const handlePaysChange = (paysSelectionne) => {
-    const infoPays = listePays.find(p => p.nom === paysSelectionne);
-    setNouveauClient({ ...nouveauClient, pays: paysSelectionne, tel: infoPays ? infoPays.indicatif + ' ' : '' });
+    setNouveauClient({ ...nouveauClient, pays: paysSelectionne });
   };
 
-  const handleTelChange = (e) => {
-    let valeur = e.target.value;
-    if (!valeur.startsWith(indicatifActuel)) {
-      valeur = `${indicatifActuel} ${valeur.replace(/\D/g, '')}`;
-    }
-    setNouveauClient({ ...nouveauClient, tel: valeur });
-  };
-
-  // --- ENREGISTREMENT (AJOUT OU MODIFICATION) ---
+  // --- SOUMISSION (AJOUT / MODIFICATION) ---
   const handleAjouter = async (e) => {
     e.preventDefault();
     
-    const clientFinal = { ...nouveauClient };
-    if (clientFinal.type === 'Individuel') clientFinal.contact = '';
+    const telComplet = `${indicatifActuel} ${numeroLocal.replace(/\D/g, '')}`;
+
+    const clientFinal = { 
+      ...nouveauClient, 
+      tel: telComplet,
+      contact: isEtablissement ? nouveauClient.contact : ''
+    };
 
     if (clientEnEdition) {
       // MODIFICATION
-      const { error } = await supabase
-        .from('clients')
-        .update(clientFinal)
-        .eq('id', clientEnEdition);
-
-      if (error) {
-        alert("Erreur lors de la mise à jour : " + error.message);
-        return;
+      const { error } = await supabase.from('clients').update(clientFinal).eq('id', clientEnEdition);
+      if (error) alert("Erreur : " + error.message);
+      else {
+        alert("Client modifié.");
+        setShowForm(false);
+        setClientEnEdition(null);
+        chargerClients();
       }
     } else {
-      // AJOUT
-      // On génère un ID unique basé sur le timestamp pour éviter les conflits
-      const nouvelId = `CL-${Date.now().toString().slice(-6)}-MPBT`;
-      const { error } = await supabase
-        .from('clients')
-        .insert([{ ...clientFinal, id: nouvelId }]);
-
-      if (error) {
-        alert("Erreur lors de l'ajout : " + error.message);
-        return;
+      // AJOUT AVEC ID SÉQUENTIEL
+      const { data: existingClients } = await supabase.from('clients').select('id');
+      
+      let prochainNum = 1;
+      if (existingClients && existingClients.length > 0) {
+        const numeros = existingClients.map(c => {
+          const match = c.id.match(/CL-(\d+)-MPBT/);
+          return match ? parseInt(match[1]) : 0;
+        });
+        prochainNum = Math.max(...numeros) + 1;
       }
-    }
+      
+      const nouvelId = `CL-${String(prochainNum).padStart(4, '0')}-MPBT`;
 
-    // Réinitialisation et rechargement
-    setNouveauClient({ type: 'Etablissement', nom: '', contact: '', tel: '', email: '', adresse: '', ville: '', pays: 'Senegal' });
-    setClientEnEdition(null);
-    setShowForm(false);
-    chargerClients();
-  };
-
-  // --- SUPPRESSION ---
-  const supprimerClient = async (id) => {
-    if (window.confirm("Voulez-vous vraiment supprimer ce client ?")) {
-      const { error } = await supabase.from('clients').delete().eq('id', id);
-      if (error) {
-        alert("Erreur de suppression : " + error.message);
-      } else {
+      const { error } = await supabase.from('clients').insert([{ ...clientFinal, id: nouvelId }]);
+      if (error) alert("Erreur : " + error.message);
+      else {
+        alert(`Client ajouté avec l'ID ${nouvelId}.`);
+        setNouveauClient({ type: 'Etablissement', nom: '', contact: '', tel: '', email: '', adresse: '', ville: '', pays: 'Senegal' });
+        setNumeroLocal('');
+        setShowForm(false);
         chargerClients();
       }
     }
   };
 
-  // --- PASSAGE EN MODE MODIFICATION ---
+  const supprimerClient = async (id) => {
+    if (window.confirm("Voulez-vous vraiment supprimer ce client ?")) {
+      const { error } = await supabase.from('clients').delete().eq('id', id);
+      if (error) alert("Erreur : " + error.message);
+      else chargerClients();
+    }
+  };
+
   const modifierClient = (client) => {
+    const indicatifDuPays = listePays.find(p => p.nom === client.pays)?.indicatif || '+221';
+    const numLocal = client.tel.replace(indicatifDuPays, '').trim();
+    
+    setNumeroLocal(numLocal);
     setNouveauClient(client);
     setClientEnEdition(client.id);
     setShowForm(true);
@@ -132,6 +126,7 @@ export default function ClientsPage() {
   const annulerEdition = () => {
     setClientEnEdition(null);
     setNouveauClient({ type: 'Etablissement', nom: '', contact: '', tel: '', email: '', adresse: '', ville: '', pays: 'Senegal' });
+    setNumeroLocal('');
     setShowForm(false);
   };
 
@@ -143,108 +138,121 @@ export default function ClientsPage() {
   const afficherNomPays = (nomPays) => (nomPays === 'Senegal' || nomPays === 'Sénégal') ? 'Sénégal' : nomPays;
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+    <div className="space-y-3">
+      {/* Barre d'actions */}
+      <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-slate-200">
         <div className="relative w-80">
-          <input type="text" placeholder="Rechercher un client..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-base text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-          <svg className="w-5 h-5 text-slate-500 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <input type="text" placeholder="Rechercher un client..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-base text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          <svg className="w-5 h-5 text-slate-500 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
-        <button onClick={() => { if (showForm) annulerEdition(); else setShowForm(true); }} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-base font-bold rounded-lg transition shadow-md">
+        <button onClick={() => { if (showForm) annulerEdition(); else setShowForm(true); }} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-base font-bold rounded-lg transition shadow-md">
           {showForm ? 'Fermer' : '+ Nouveau Client'}
         </button>
       </div>
 
+      {/* Formulaire compact */}
       {showForm && (
-        <form onSubmit={handleAjouter} className={`p-5 rounded-xl shadow-md border-2 transition-colors duration-300 ${theme.border} ${theme.bg}`}>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className={`text-lg font-extrabold uppercase tracking-wide ${theme.accent}`}>{clientEnEdition ? 'Modifier le client' : 'Nouveau client'}</h3>
+        <form onSubmit={handleAjouter} className={`p-4 rounded-xl shadow-md border-2 transition-colors duration-300 ${theme.border} ${theme.bg}`}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className={`text-base font-extrabold uppercase tracking-wide ${theme.accent}`}>{clientEnEdition ? 'Modifier le client' : 'Nouveau client'}</h3>
             <div className="flex gap-6">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="typeClient" value="Etablissement" checked={nouveauClient.type === 'Etablissement'} onChange={(e) => setNouveauClient({...nouveauClient, type: e.target.value})} className={`w-5 h-5 ${theme.radio}`} />
-                <span className="text-base font-bold text-slate-800">Etablissement</span>
+                <input type="radio" name="typeClient" value="Etablissement" checked={nouveauClient.type === 'Etablissement'} onChange={(e) => setNouveauClient({...nouveauClient, type: e.target.value})} className={`w-4 h-4 ${theme.radio}`} />
+                <span className="text-sm font-bold text-slate-800">Etablissement</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="radio" name="typeClient" value="Individuel" checked={nouveauClient.type === 'Individuel'} onChange={(e) => setNouveauClient({...nouveauClient, type: e.target.value})} className={`w-5 h-5 ${theme.radio}`} />
-                <span className="text-base font-bold text-slate-800">Individuel</span>
+                <input type="radio" name="typeClient" value="Individuel" checked={nouveauClient.type === 'Individuel'} onChange={(e) => setNouveauClient({...nouveauClient, type: e.target.value})} className={`w-4 h-4 ${theme.radio}`} />
+                <span className="text-sm font-bold text-slate-800">Individuel</span>
               </label>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">{isEtablissement ? 'Nom établissement *' : 'Nom & Prénom *'}</label>
-              <input required placeholder={isEtablissement ? 'SENEGAL TELECOM' : 'Amadou Fall'} value={nouveauClient.nom} onChange={e => setNouveauClient({...nouveauClient, nom: e.target.value})} className={`w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-3">
+            <div className={isEtablissement ? 'md:col-span-4' : 'md:col-span-6'}>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{isEtablissement ? 'Nom établissement *' : 'Nom & Prénom *'}</label>
+              <input required placeholder={isEtablissement ? 'SENEGAL TELECOM' : 'Amadou Fall'} value={nouveauClient.nom} onChange={e => setNouveauClient({...nouveauClient, nom: e.target.value})} className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 ${theme.radio}`} />
             </div>
+            
             {isEtablissement && (
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5">Contact *</label>
-                <input required placeholder="M. Diop" value={nouveauClient.contact} onChange={e => setNouveauClient({...nouveauClient, contact: e.target.value})} className={`w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
+              <div className="md:col-span-3">
+                <label className="block text-xs font-bold text-slate-700 mb-1">Contact *</label>
+                <input required placeholder="M. Diop" value={nouveauClient.contact} onChange={e => setNouveauClient({...nouveauClient, contact: e.target.value})} className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 ${theme.radio}`} />
               </div>
             )}
-            <div className={isEtablissement ? '' : 'md:col-span-2'}>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Téléphone *</label>
-              <div className="flex gap-2">
-                <select value={nouveauClient.pays} onChange={(e) => handlePaysChange(e.target.value)} className="w-2/5 px-2 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 focus:ring-indigo-500">
-                  {listePays.map(p => <option key={p.code} value={p.nom}>{p.emoji} {p.indicatif}</option>)}
+
+            <div className={isEtablissement ? 'md:col-span-5' : 'md:col-span-6'}>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Téléphone *</label>
+              <div className="flex gap-1">
+                <select value={nouveauClient.pays} onChange={(e) => handlePaysChange(e.target.value)} className="w-28 px-1 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500 truncate">
+                  {listePays.map(p => (
+                    <option key={p.code} value={p.nom}>{p.emoji} {p.nom}</option>
+                  ))}
                 </select>
-                <input required value={nouveauClient.tel} onChange={handleTelChange} placeholder={`${indicatifActuel} XX XXX XX XX`} className={`w-3/5 px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
+                <div className="flex-1 flex rounded-lg border border-slate-300 overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-500">
+                  <span className="px-2 py-2 bg-slate-100 text-slate-600 text-xs font-bold border-r border-slate-300 flex items-center">{indicatifActuel}</span>
+                  <input required value={numeroLocal} onChange={(e) => setNumeroLocal(e.target.value.replace(/[^\d\s]/g, ''))} placeholder="77 123 45 67" className="w-full px-2 py-2 bg-transparent border-none text-sm text-slate-800 focus:outline-none" />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Email <span className="text-slate-500 font-normal">(facult.)</span></label>
-              <input type="email" placeholder="client@exemple.com" value={nouveauClient.email} onChange={e => setNouveauClient({...nouveauClient, email: e.target.value})} className={`w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Adresse *</label>
-              <input required placeholder="Sacré-Cœur 3" value={nouveauClient.adresse} onChange={e => setNouveauClient({...nouveauClient, adresse: e.target.value})} className={`w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">Ville <span className="text-slate-500 font-normal">(facult.)</span></label>
-              <input placeholder="Dakar" value={nouveauClient.ville} onChange={e => setNouveauClient({...nouveauClient, ville: e.target.value})} className={`w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base text-slate-800 focus:ring-2 ${theme.radio}`} />
             </div>
           </div>
 
-          <div className="mt-4 flex justify-end gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Email <span className="text-slate-400 font-normal">(facult.)</span></label>
+              <input type="email" placeholder="client@exemple.com" value={nouveauClient.email} onChange={e => setNouveauClient({...nouveauClient, email: e.target.value})} className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 ${theme.radio}`} />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Adresse *</label>
+              <input required placeholder="Sacré-Cœur 3" value={nouveauClient.adresse} onChange={e => setNouveauClient({...nouveauClient, adresse: e.target.value})} className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 ${theme.radio}`} />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Ville <span className="text-slate-400 font-normal">(facult.)</span></label>
+              <input placeholder="Dakar" value={nouveauClient.ville} onChange={e => setNouveauClient({...nouveauClient, ville: e.target.value})} className={`w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:ring-2 ${theme.radio}`} />
+            </div>
+          </div>
+
+          <div className="mt-3 flex justify-end gap-3">
             {clientEnEdition && (
-              <button type="button" onClick={annulerEdition} className="px-5 py-2.5 text-base text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition">Annuler</button>
+              <button type="button" onClick={annulerEdition} className="px-4 py-1.5 text-sm text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition">Annuler</button>
             )}
-            <button type="submit" className={`px-6 py-2.5 text-base text-white font-bold rounded-lg transition shadow-md ${theme.button}`}>
+            <button type="submit" className={`px-6 py-1.5 text-sm text-white font-bold rounded-lg transition shadow-md ${theme.button}`}>
               {clientEnEdition ? 'Mettre à jour' : 'Enregistrer'}
             </button>
           </div>
         </form>
       )}
 
+      {/* Tableau */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-100 text-slate-800 border-b-2 border-slate-300 text-sm uppercase tracking-wider">
             <tr>
-              <th className="px-4 py-4 font-extrabold">ID</th>
-              <th className="px-4 py-4 font-extrabold">Type</th>
-              <th className="px-4 py-4 font-extrabold">Nom / Etablissement</th>
-              <th className="px-4 py-4 font-extrabold">Contact</th>
-              <th className="px-4 py-4 font-extrabold">Téléphone</th>
-              <th className="px-4 py-4 font-extrabold">Ville / Pays</th>
-              <th className="px-4 py-4 font-extrabold text-right">Actions</th>
+              <th className="px-4 py-3 font-extrabold">ID</th>
+              <th className="px-4 py-3 font-extrabold">Type</th>
+              <th className="px-4 py-3 font-extrabold">Nom / Etablissement</th>
+              <th className="px-4 py-3 font-extrabold">Contact</th>
+              <th className="px-4 py-3 font-extrabold">Téléphone</th>
+              <th className="px-4 py-3 font-extrabold">Ville / Pays</th>
+              <th className="px-4 py-3 font-extrabold text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {isLoading ? (
-              <tr><td colSpan="7" className="p-8 text-center text-slate-500 text-base">Chargement des clients...</td></tr>
+              <tr><td colSpan="7" className="p-6 text-center text-slate-500 text-sm">Chargement...</td></tr>
             ) : clientsFiltres.map(client => {
               const isIndividu = client.type === 'Individuel';
               return (
                 <tr key={client.id} className="hover:bg-indigo-50 transition-colors">
-                  <td className="px-4 py-4 text-base text-slate-700 font-medium"><span className="bg-slate-100 px-2 py-1 rounded-md font-semibold">{client.id}</span></td>
-                  <td className="px-4 py-4"><span className={`px-3 py-1 rounded-md text-xs font-extrabold uppercase ${isIndividu ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{client.type || 'Etablissement'}</span></td>
-                  <td className="px-4 py-4 font-bold text-slate-900 text-base">{client.nom}</td>
-                  <td className="px-4 py-4 text-slate-700 text-base">{client.contact || '-'}</td>
-                  <td className="px-4 py-4 text-slate-700 text-base font-medium">{client.tel}</td>
-                  <td className="px-4 py-4 text-slate-700 text-base">{client.ville && `${client.ville}, `}{afficherNomPays(client.pays || 'Senegal')}</td>
-                  <td className="px-4 py-4 text-right">
-                    <div className="flex justify-end gap-3">
-                      <button onClick={() => modifierClient(client)} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Modifier"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                      <button onClick={() => supprimerClient(client.id)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                  <td className="px-4 py-3 text-sm text-slate-700 font-medium"><span className="bg-slate-100 px-2 py-1 rounded-md font-semibold">{client.id}</span></td>
+                  <td className="px-4 py-3"><span className={`px-2 py-1 rounded-md text-xs font-extrabold uppercase ${isIndividu ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{client.type || 'Etablissement'}</span></td>
+                  <td className="px-4 py-3 font-bold text-slate-900 text-sm">{client.nom}</td>
+                  <td className="px-4 py-3 text-slate-700 text-sm">{client.contact || '-'}</td>
+                  <td className="px-4 py-3 text-slate-700 text-sm font-medium">{client.tel}</td>
+                  <td className="px-4 py-3 text-slate-700 text-sm">{client.ville && `${client.ville}, `}{afficherNomPays(client.pays || 'Senegal')}</td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => modifierClient(client)} className="text-indigo-600 hover:text-indigo-800 p-1.5 rounded-lg hover:bg-indigo-100 transition" title="Modifier"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                      <button onClick={() => supprimerClient(client.id)} className="text-red-600 hover:text-red-800 p-1.5 rounded-lg hover:bg-red-100 transition" title="Supprimer"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                     </div>
                   </td>
                 </tr>
@@ -252,7 +260,7 @@ export default function ClientsPage() {
             })}
           </tbody>
         </table>
-        {!isLoading && clientsFiltres.length === 0 && (<p className="p-8 text-center text-slate-500 text-base">Aucun client trouvé.</p>)}
+        {!isLoading && clientsFiltres.length === 0 && (<p className="p-6 text-center text-slate-500 text-sm">Aucun client trouvé.</p>)}
       </div>
     </div>
   );

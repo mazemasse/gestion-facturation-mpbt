@@ -30,7 +30,7 @@ export default function ProduitsPage() {
     const { data, error } = await supabase
       .from('produits')
       .select('*')
-      .order('designation', { ascending: true });
+      .order('id', { ascending: true });
 
     if (error) {
       console.error(error);
@@ -99,8 +99,20 @@ export default function ProduitsPage() {
         return;
       }
     } else {
-      // AJOUT
-      const nouvelId = `PR-${Date.now().toString().slice(-6)}-MPBT`;
+      // AJOUT AVEC ID SÉQUENTIEL
+      const { data: existingProduits } = await supabase.from('produits').select('id');
+      
+      let prochainNum = 1;
+      if (existingProduits && existingProduits.length > 0) {
+        const numeros = existingProduits.map(p => {
+          const match = p.id.match(/PR-(\d+)-MPBT/);
+          return match ? parseInt(match[1]) : 0;
+        });
+        prochainNum = Math.max(...numeros) + 1;
+      }
+      
+      const nouvelId = `PR-${String(prochainNum).padStart(4, '0')}-MPBT`;
+
       const { error } = await supabase
         .from('produits')
         .insert([{ 
@@ -159,7 +171,6 @@ export default function ProduitsPage() {
 
   return (
     <div className="space-y-4">
-      {/* Barre d'actions */}
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="relative w-80">
           <input type="text" placeholder="Rechercher un produit..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-base text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
@@ -170,7 +181,6 @@ export default function ProduitsPage() {
         </button>
       </div>
 
-      {/* Formulaire */}
       {showForm && (
         <form onSubmit={handleAjouter} className="bg-white p-5 rounded-xl shadow-md border-2 border-purple-200">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
@@ -237,7 +247,6 @@ export default function ProduitsPage() {
         </form>
       )}
 
-      {/* Tableau */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-100 text-slate-800 border-b-2 border-slate-300 text-sm uppercase tracking-wider">
