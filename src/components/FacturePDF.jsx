@@ -1,7 +1,35 @@
-import { forwardRef } from 'react';
+import { forwardRef, useState, useEffect } from 'react';
 import { COMPANY_DATA } from '../data/companyData';
+import { supabase } from '../lib/supabaseClient';
 
 const FacturePDF = forwardRef(({ data, user }, ref) => {
+  // État pour stocker les infos de l'entreprise (chargées depuis Supabase)
+  const [companyInfo, setCompanyInfo] = useState(COMPANY_DATA);
+
+  // Chargement des paramètres au montage du composant
+  useEffect(() => {
+    const chargerParametres = async () => {
+      const { data: paramData } = await supabase.from('parametres').select('*').eq('id', 1).single();
+      if (paramData) {
+        setCompanyInfo({
+          nom: paramData.nom,
+          sigle: paramData.sigle,
+          adresse: paramData.adresse,
+          telephone: paramData.telephone,
+          email: paramData.email,
+          siteWeb: paramData.site_web,
+          ninea: paramData.ninea,
+          rc: paramData.rc,
+          banque: paramData.banque,
+          compteBancaire: paramData.compte_bancaire,
+          logo: paramData.logo,
+          slogan: paramData.slogan
+        });
+      }
+    };
+    chargerParametres();
+  }, []);
+
   if (!data) return null;
 
   const { 
@@ -15,28 +43,27 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
   };
 
   return (
-    // On réduit le padding général (p-6 au lieu de p-8) pour gagner de la place
     <div ref={ref} className="bg-white text-black p-6 font-sans w-[210mm] min-h-[297mm] mx-auto flex flex-col">
       
       {/* ================= EN-TÊTE ================= */}
-      {/* mb-4 au lieu de mb-6 */}
       <div className="flex justify-between items-start border-b-4 border-emerald-600 pb-3 mb-4">
         <div className="flex items-center gap-4">
           <div className="w-20 h-20 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center bg-slate-50">
-            <img src={COMPANY_DATA.logo} alt="Logo" className="w-full h-full object-contain" 
+            {/* On utilise companyInfo.logo au lieu de COMPANY_DATA.logo */}
+            <img src={companyInfo.logo} alt="Logo" className="w-full h-full object-contain" 
                  onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
             <div className="hidden w-full h-full bg-emerald-600 text-white items-center justify-center font-black text-2xl">
-              {COMPANY_DATA.sigle}
+              {companyInfo.sigle}
             </div>
           </div>
           
           <div>
             <h1 className="text-lg font-black uppercase text-gray-900 leading-tight">
-              {COMPANY_DATA.nom}
+              {companyInfo.nom}
             </h1>
-            <p className="text-[11px] text-gray-600 mt-1">📍 {COMPANY_DATA.adresse}</p>
-            <p className="text-[11px] text-gray-600">📞 {COMPANY_DATA.telephone}</p>
-            <p className="text-[11px] text-gray-600">✉️ {COMPANY_DATA.email} - 🌐 {COMPANY_DATA.siteWeb}</p>
+            <p className="text-[11px] text-gray-600 mt-1">📍 {companyInfo.adresse}</p>
+            <p className="text-[11px] text-gray-600">📞 {companyInfo.telephone}</p>
+            <p className="text-[11px] text-gray-600">✉️ {companyInfo.email} - 🌐 {companyInfo.siteWeb}</p>
           </div>
         </div>
 
@@ -44,15 +71,14 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
           <h2 className="text-2xl font-black text-emerald-700 uppercase tracking-wider">{typeDoc}</h2>
           <p className="text-base font-bold text-gray-800 mt-1">N° {numeroDoc}</p>
           <div className="mt-1 text-[9px] text-gray-500 border-t border-gray-200 pt-1 space-y-0.5">
-            <p>NINEA : {COMPANY_DATA.ninea}</p>
-            <p>RC : {COMPANY_DATA.rc}</p>
-            <p>Compte : {COMPANY_DATA.banque} {COMPANY_DATA.compteBancaire}</p>
+            <p>NINEA : {companyInfo.ninea}</p>
+            <p>RC : {companyInfo.rc}</p>
+            <p>Compte : {companyInfo.banque} {companyInfo.compteBancaire}</p>
           </div>
         </div>
       </div>
 
       {/* ================= INFOS CLIENT & DATES ================= */}
-      {/* mb-4 au lieu de mb-6 */}
       <div className="flex justify-between mb-4">
         <div className="w-1/2 bg-gray-50 p-2 rounded-lg border border-gray-200">
           <h3 className="text-[10px] font-black uppercase text-emerald-700 mb-1 border-b border-emerald-200 pb-1">Facturé à :</h3>
@@ -87,7 +113,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
       )}
 
       {/* ================= TABLEAU DES ARTICLES ================= */}
-      {/* mb-4 au lieu de mb-6, text-xs partout */}
       <table className="w-full mb-4 text-xs border-collapse">
         <thead>
           <tr className="bg-emerald-600 text-white text-left">
@@ -112,7 +137,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
       </table>
 
       {/* ================= TOTAUX ================= */}
-      {/* mb-4 au lieu de mb-6 */}
       <div className="flex justify-end mb-4">
         <div className="w-1/2">
           <div className="flex justify-between py-1 text-[11px] border-b border-gray-200"><span className="text-gray-600">Sous-total HT</span><span className="font-bold">{formatMonnaie(sousTotalHT)}</span></div>
@@ -124,7 +148,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
       </div>
 
       {/* ================= CONDITIONS COMMERCIALES ================= */}
-      {/* mb-4 au lieu de mb-6 */}
       <div className="mt-1 mb-4 p-2 bg-slate-50 border border-slate-200 rounded">
         <h4 className="text-[10px] font-black uppercase text-slate-700 mb-0.5">Conditions Commerciales :</h4>
         <ul className="text-[9px] text-slate-600 list-disc list-inside space-y-0.5">
@@ -134,7 +157,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
       </div>
 
       {/* ================= SIGNATURE DIRECTION ================= */}
-      {/* On réduit l'espace de signature (h-12 au lieu de h-16) */}
       <div className="flex justify-end mt-2 mb-4">
         <div className="w-72 flex flex-col items-end pr-4">
           <p className="text-[11px] font-bold text-slate-800 underline underline-offset-4 decoration-slate-400 decoration-1">
@@ -145,7 +167,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
       </div>
 
       {/* ================= SOUCHE DE RECOUVREMENT (Bas de page) ================= */}
-      {/* pt-2 au lieu de pt-6 */}
       {typeDoc === 'Facture' && (
         <div className="mt-auto pt-2">
           <div className="border-2 border-dashed border-gray-400 p-3 bg-gray-50">
@@ -198,7 +219,7 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
               </div>
             </div>
 
-            {/* Pied de la souche (LA LIGNE QUI MANQUAIT) */}
+            {/* Pied de la souche */}
             <div className="mt-2 pt-1.5 border-t border-gray-300 flex justify-between text-[9px] text-gray-500">
               <p>Généré par : {user.nom}</p>
               <p>Heure : {heureFormatee}</p>
@@ -209,9 +230,9 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
 
       {/* ================= PIED DE PAGE ================= */}
       <div className="mt-3 pt-2 border-t border-gray-300 text-center text-[9px] text-gray-500 space-y-0.5">
-        <p className="font-bold text-gray-700">{COMPANY_DATA.nom} ({COMPANY_DATA.sigle})</p>
-        <p>{COMPANY_DATA.adresse} - NINEA : {COMPANY_DATA.ninea} - RC : {COMPANY_DATA.rc}</p>
-        <p className="italic mt-0.5 text-emerald-600">{COMPANY_DATA.slogan}</p>
+        <p className="font-bold text-gray-700">{companyInfo.nom} ({companyInfo.sigle})</p>
+        <p>{companyInfo.adresse} - NINEA : {companyInfo.ninea} - RC : {companyInfo.rc}</p>
+        <p className="italic mt-0.5 text-emerald-600">{companyInfo.slogan}</p>
       </div>
 
     </div>

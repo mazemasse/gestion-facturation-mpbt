@@ -1,27 +1,81 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
 import { COMPANY_DATA } from '../data/companyData';
 
 export default function ParametresPage() {
-  // On charge les données depuis le localStorage si elles existent, sinon depuis le fichier par défaut
-  const [data, setData] = useState(() => {
-    const saved = localStorage.getItem('mpbt_company_data');
-    return saved ? JSON.parse(saved) : COMPANY_DATA;
-  });
-
+  const [data, setData] = useState(COMPANY_DATA);
+  const [isLoading, setIsLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+
+  // --- CHARGEMENT DES DONNÉES DEPUIS SUPABASE ---
+  useEffect(() => {
+    const chargerParametres = async () => {
+      const { data: paramData, error } = await supabase
+        .from('parametres')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (error) {
+        console.error("Erreur chargement paramètres:", error);
+      } else if (paramData) {
+        setData({
+          nom: paramData.nom,
+          sigle: paramData.sigle,
+          adresse: paramData.adresse,
+          telephone: paramData.telephone,
+          email: paramData.email,
+          siteWeb: paramData.site_web,
+          ninea: paramData.ninea,
+          rc: paramData.rc,
+          banque: paramData.banque,
+          compteBancaire: paramData.compte_bancaire,
+          logo: paramData.logo,
+          slogan: paramData.slogan
+        });
+      }
+      setIsLoading(false);
+    };
+    chargerParametres();
+  }, []);
 
   const handleChange = (e) => {
     setData({ ...data, [e.target.name]: e.target.value });
     setSaved(false);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // On sauvegarde dans le localStorage
-    localStorage.setItem('mpbt_company_data', JSON.stringify(data));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000); // Le message disparaît après 3s
+    
+    const { error } = await supabase
+      .from('parametres')
+      .update({
+        nom: data.nom,
+        sigle: data.sigle,
+        adresse: data.adresse,
+        telephone: data.telephone,
+        email: data.email,
+        site_web: data.siteWeb,
+        ninea: data.ninea,
+        rc: data.rc,
+        banque: data.banque,
+        compte_bancaire: data.compteBancaire,
+        logo: data.logo,
+        slogan: data.slogan
+      })
+      .eq('id', 1);
+
+    if (error) {
+      alert("Erreur de sauvegarde : " + error.message);
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    }
   };
+
+  if (isLoading) {
+    return <div className="p-8 text-center text-slate-500">Chargement des paramètres...</div>;
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
