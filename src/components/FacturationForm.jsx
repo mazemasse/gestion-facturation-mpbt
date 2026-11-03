@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { toPng } from 'html-to-image';
+import { toJpeg } from 'html-to-image'; // <-- IMPORT MODIFIÉ
 import { jsPDF } from 'jspdf';
-import { getNextNumero } from '../data/mockData'; // On garde ça pour l'instant
+import { getNextNumero } from '../data/mockData';
 import { COMPANY_DATA } from '../data/companyData';
-import { supabase } from '../lib/supabaseClient'; // <-- IMPORT SUPABASE
+import { supabase } from '../lib/supabaseClient';
 import FacturePDF from './FacturePDF';
 
-export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
+export default function FacturationForm({ user, typeParDefaut = 'Facture', donneesInitiales, onResetInitiales }) {
   // --- ÉTATS ---
   const [typeDoc, setTypeDoc] = useState(typeParDefaut);
   const [numeroDoc, setNumeroDoc] = useState('');
@@ -19,6 +19,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
   const [appliqueTVA, setAppliqueTVA] = useState(true);
   const [remiseTTC, setRemiseTTC] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isTransformation, setIsTransformation] = useState(false);
+  const [numeroOrigine, setNumeroOrigine] = useState(null);
 
   // --- DONNÉES SUPABASE ---
   const [clients, setClients] = useState([]);
@@ -26,7 +28,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
 
   const componentRef = useRef(null);
 
-  // --- CHARGEMENT INITIAL ---
+  // --- CHARGEMENT INITIAL (Clients et Produits) ---
   useEffect(() => {
     const chargerDonnees = async () => {
       const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
@@ -36,6 +38,19 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
     };
     chargerDonnees();
   }, []);
+
+  // --- GESTION DES DONNÉES INITIALES (Transformation Devis) ---
+  useEffect(() => {
+    if (donneesInitiales) {
+      setClientSelectionne(donneesInitiales.client);
+      setObjet(donneesInitiales.objet);
+      setPanier(donneesInitiales.panier);
+      setTypeDoc('Facture');
+      setIsTransformation(true);
+      setNumeroOrigine(donneesInitiales.numeroOrigine);
+      if (onResetInitiales) onResetInitiales();
+    }
+  }, [donneesInitiales, onResetInitiales]);
 
   // --- NUMÉROTATION ---
   useEffect(() => {
@@ -80,13 +95,26 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
-  // --- FONCTION D'EXPORT PDF + SAUVEGARDE SUPABASE ---
+  // --- ANNULER LA TRANSFORMATION ---
+  const annulerTransformation = () => {
+    if (window.confirm("Voulez-vous annuler la transformation du devis ? Les données seront perdues.")) {
+      setPanier([]);
+      setClientSelectionne('');
+      setObjet('');
+      setIsTransformation(false);
+      setNumeroOrigine(null);
+      setTypeDoc('Facture');
+      setNumeroDoc(getNextNumero('Facture'));
+    }
+  };
+
+  // --- FONCTION D'EXPORT PDF + SAUVEGARDE SUPABASE (COMPRESSÉE) ---
   const genererPDF = async () => {
     if (!componentRef.current) return;
     setIsGenerating(true);
 
     try {
-      // 1. Sauvegarde dans Supabase (En-tête de la facture)
+      // 1. Sauvegarde dans Supabase (En-tête)
       const { error: errFacture } = await supabase
         .from('factures')
         .insert([{
@@ -105,7 +133,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
 
       if (errFacture) throw new Error("Erreur sauvegarde facture : " + errFacture.message);
 
-      // 2. Sauvegarde des détails (Lignes)
+      // 2. Sauvegarde des détails
       const details = panier.map(item => ({
         facture_numero: numeroDoc,
         designation: item.designation,
@@ -118,20 +146,35 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
       const { error: errDetails } = await supabase.from('facture_details').insert(details);
       if (errDetails) throw new Error("Erreur sauvegarde détails : " + errDetails.message);
 
-      // 3. Génération du PDF
-      const dataUrl = await toPng(componentRef.current, { quality: 1, pixelRatio: 2, backgroundColor: '#ffffff' });
+      // 3. Génération du PDF (COMPRESSÉ)
+      const dataUrl = await toJpeg(componentRef.current, { 
+        quality: 0.95, 
+        pixelRatio: 1.5, 
+        backgroundColor: '#ffffff' 
+      });
+      
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (componentRef.current.offsetHeight * pdfWidth) / componentRef.current.offsetWidth;
-      pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      
+      pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`);
 
       alert(`Document ${numeroDoc} généré et enregistré avec succès !`);
+      
+      // 4. Si c'était une transformation, on supprime le devis d'origine
+      if (isTransformation && numeroOrigine) {
+        await supabase.from('facture_details').delete().eq('facture_numero', numeroOrigine);
+        await supabase.from('factures').delete().eq('numero', numeroOrigine);
+        alert(`Le devis ${numeroOrigine} a été supprimé (transformé en facture).`);
+      }
       
       // Réinitialisation
       setPanier([]);
       setClientSelectionne('');
       setObjet('');
+      setIsTransformation(false);
+      setNumeroOrigine(null);
       setNumeroDoc(getNextNumero(typeDoc));
 
     } catch (error) {
@@ -172,6 +215,15 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
               <p className="text-xs text-slate-500 mt-1">Créé le {dateFormatee} à {heureFormatee}</p>
             </div>
           </div>
+
+          {isTransformation && (
+            <div className="mb-4 bg-indigo-50 border border-indigo-200 p-3 rounded-lg flex justify-between items-center">
+              <p className="text-sm text-indigo-800 font-medium">
+                <span className="font-bold">Mode Transformation :</span> Ce document est issu du devis. Vérifiez les informations puis validez.
+              </p>
+              <button onClick={annulerTransformation} className="text-xs text-red-600 hover:text-red-800 font-bold bg-white px-3 py-1 rounded border border-red-200">Annuler</button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -297,7 +349,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture' }) {
         </div>
       </div>
 
-      <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
+      <div style={{ position: 'fixed', top: 0, left: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
         <FacturePDF ref={componentRef} data={pdfData} user={user} />
       </div>
     </div>

@@ -1,15 +1,20 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { toJpeg } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabaseClient';
+import FacturePDF from './FacturePDF';
 
-export default function JournalPage({ user, onOuvrirDocument }) {
+export default function JournalPage({ user, onPreparerFacture }) {
   const [journal, setJournal] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [recherche, setRecherche] = useState('');
   const [filtreType, setFiltreType] = useState('Tous');
 
+  const [documentAImprimer, setDocumentAImprimer] = useState(null);
+  const pdfRef = useRef(null);
+
   const estAdmin = user?.nom === 'MASSE NDOYE';
 
-  // --- CHARGEMENT DEPUIS SUPABASE ---
   const chargerJournal = async () => {
     setIsLoading(true);
     const { data, error } = await supabase
@@ -17,10 +22,8 @@ export default function JournalPage({ user, onOuvrirDocument }) {
       .select('*')
       .order('date_creation', { ascending: false });
 
-    if (error) {
-      console.error(error);
-    } else {
-      // On adapte les données de la base au format attendu par l'interface
+    if (error) console.error(error);
+    else {
       const formattedData = data.map(d => ({
         id: d.id,
         numero: d.numero,
@@ -28,8 +31,13 @@ export default function JournalPage({ user, onOuvrirDocument }) {
         date: d.date_creation,
         client: d.client_nom,
         montant: d.net_a_payer,
-        statut: 'Payée', // À gérer dynamiquement plus tard
-        valide: true 
+        objet: d.objet,
+        mode_paiement: d.mode_paiement,
+        sous_total_ht: d.sous_total_ht,
+        tva: d.tva,
+        remise: d.remise,
+        total_ttc: d.total_ttc,
+        net_a_payer: d.net_a_payer
       }));
       setJournal(formattedData);
     }
@@ -40,16 +48,124 @@ export default function JournalPage({ user, onOuvrirDocument }) {
     chargerJournal();
   }, []);
 
-  const supprimerDocument = async (id, numero) => {
-    if (!estAdmin) {
-      alert("Action refusée : Seul l'administrateur peut supprimer une pièce comptable.");
-      return;
+  // --- GÉNÉRATION ET OUVERTURE DU PDF ---
+  const ouvrirDocument = async (doc) => {
+    try {
+      // 1. Récupérer les détails
+      const { data: details } = await supabase
+        .from('facture_details')
+        .select('*')
+        .eq('facture_numero', doc.numero);
+
+      // 2. Récupérer les infos du client
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('nom', doc.client)
+        .single();
+
+      // 3. Préparer les données
+      const pdfData = {
+        numeroDoc: doc.numero,
+        typeDoc: doc.type,
+        client: doc.client,
+        clientInfo: clientData,
+        objet: doc.objet,
+        dateFormatee: new Date(doc.date).toLocaleDateString('fr-FR'),
+        heureFormatee: new Date(doc.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        modePaiement: doc.mode_paiement,
+        panier: details.map(d => ({
+          designation: d.designation,
+          unite: d.unite,
+          quantite: d.quantite,
+          prixUnitaire: d.prix_unitaire,
+          total: d.total
+        })),
+        sousTotalHT: doc.sous_total_ht,
+        tva: doc.tva,
+        appliqueTVA: true,
+        totalTTCBrut: doc.total_ttc,
+        remiseTTC: doc.remise || 0,
+        netAPayer: doc.net_a_payer
+      };
+
+      setDocumentAImprimer({ data: pdfData, user: user });
+      
+      // Attendre que le composant soit rendu
+      setTimeout(async () => {
+        if (!pdfRef.current) return;
+        
+        const dataUrl = await toJpeg(pdfRef.current, { 
+          quality: 0.95, 
+          pixelRatio: 1.5, 
+          backgroundColor: '#ffffff' 
+        });
+
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (pdfRef.current.offsetHeight * pdfWidth) / pdfRef.current.offsetWidth;
+        
+        pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        
+        // --- CORRECTION POUR LE NOM DU FICHIER ET L'OUVERTURE ---
+        const nomFichier = `${doc.numero}_${doc.client.replace(/\s+/g, '_')}.pdf`;
+        const pdfBlob = pdf.output('blob');
+        
+        // Création d'un fichier avec le bon nom
+        const fichier = new File([pdfBlob], nomFichier, { type: 'application/pdf' });
+        const url = URL.createObjectURL(fichier);
+        
+        // Ouverture dans un nouvel onglet
+        window.open(url, '_blank');
+        
+        // Nettoyage de l'URL après un certain temps
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+        setDocumentAImprimer(null);
+      }, 500);
+
+    } catch (err) {
+      alert("Erreur : " + err.message);
+      setDocumentAImprimer(null);
     }
-    if (window.confirm(`Êtes-vous sûr de vouloir supprimer définitivement le document ${numero} ?`)) {
-      // Suppression des détails puis de la facture
+  };
+
+  const preparerTransformation = async (devis) => {
+    if (window.confirm(`Transformer le Devis ${devis.numero} en Facture ?\n\nVous serez redirigé vers le formulaire de facturation pré-rempli.`)) {
+      try {
+        const { data: details, error } = await supabase
+          .from('facture_details')
+          .select('*')
+          .eq('facture_numero', devis.numero);
+
+        if (error) throw error;
+
+        if (onPreparerFacture) {
+          onPreparerFacture({
+            client: devis.client,
+            objet: "Transformation du devis " + devis.numero,
+            numeroOrigine: devis.numero,
+            panier: details.map(d => ({
+              id: Date.now() + Math.random(),
+              designation: d.designation,
+              unite: d.unite,
+              quantite: d.quantite,
+              prixUnitaire: d.prix_unitaire,
+              total: d.total
+            }))
+          });
+        }
+      } catch (err) {
+        alert("Erreur : " + err.message);
+      }
+    }
+  };
+
+  const supprimerDocument = async (id, numero) => {
+    if (!estAdmin) return alert("Action refusée.");
+    if (window.confirm(`Supprimer définitivement le document ${numero} ?`)) {
       await supabase.from('facture_details').delete().eq('facture_numero', numero);
       const { error } = await supabase.from('factures').delete().eq('id', id);
-      
       if (error) alert("Erreur : " + error.message);
       else chargerJournal();
     }
@@ -64,25 +180,8 @@ export default function JournalPage({ user, onOuvrirDocument }) {
     });
   }, [journal, recherche, filtreType]);
 
-  const stats = useMemo(() => {
-    const totalFactures = documentsFiltres.filter(d => d.type === 'Facture').reduce((sum, d) => sum + d.montant, 0);
-    const nbFactures = documentsFiltres.filter(d => d.type === 'Facture').length;
-    const nbDevis = documentsFiltres.filter(d => d.type === 'Devis').length;
-    const nbEnAttente = documentsFiltres.filter(d => d.valide === false).length;
-    return { totalFactures, nbFactures, nbDevis, nbEnAttente };
-  }, [documentsFiltres]);
-
   const formatMonnaie = (montant) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', maximumFractionDigits: 0 }).format(montant).replace('XOF', 'F');
   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('fr-FR');
-
-  const getStatutStyle = (statut) => {
-    switch (statut) {
-      case 'Payée': return 'bg-emerald-100 text-emerald-800';
-      case 'Impayée': return 'bg-red-100 text-red-800';
-      case 'En attente': return 'bg-amber-100 text-amber-800';
-      default: return 'bg-slate-100 text-slate-800';
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -98,10 +197,6 @@ export default function JournalPage({ user, onOuvrirDocument }) {
             ))}
           </div>
         </div>
-        <div className="flex gap-6 text-sm">
-          <div className="text-right"><p className="text-slate-500 font-medium">Total Facturé</p><p className="text-lg font-extrabold text-teal-700">{formatMonnaie(stats.totalFactures)}</p></div>
-          <div className="text-right border-l border-slate-200 pl-6"><p className="text-slate-500 font-medium">Documents</p><p className="text-lg font-extrabold text-slate-800">{stats.nbFactures} Fac. / {stats.nbDevis} Dev.</p></div>
-        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
@@ -109,12 +204,12 @@ export default function JournalPage({ user, onOuvrirDocument }) {
           <table className="w-full text-left min-w-[900px]">
             <thead className="bg-slate-100 text-slate-800 border-b-2 border-slate-300 text-sm uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-4 font-extrabold whitespace-nowrap">Numéro</th>
-                <th className="px-4 py-4 font-extrabold whitespace-nowrap">Type</th>
-                <th className="px-4 py-4 font-extrabold whitespace-nowrap">Date</th>
+                <th className="px-4 py-4 font-extrabold">Numéro</th>
+                <th className="px-4 py-4 font-extrabold">Type</th>
+                <th className="px-4 py-4 font-extrabold">Date</th>
                 <th className="px-4 py-4 font-extrabold">Client</th>
-                <th className="px-4 py-4 font-extrabold text-right whitespace-nowrap">Montant TTC</th>
-                <th className="px-4 py-4 font-extrabold text-right whitespace-nowrap">Actions</th>
+                <th className="px-4 py-4 font-extrabold text-right">Montant TTC</th>
+                <th className="px-4 py-4 font-extrabold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -129,7 +224,16 @@ export default function JournalPage({ user, onOuvrirDocument }) {
                   <td className="px-4 py-4 text-right font-bold text-teal-700 text-base whitespace-nowrap">{formatMonnaie(doc.montant)}</td>
                   <td className="px-4 py-4 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => onOuvrirDocument(doc)} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Imprimer"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button>
+                      <button onClick={() => ouvrirDocument(doc)} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Télécharger le PDF">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      </button>
+                      
+                      {doc.type === 'Devis' && (
+                        <button onClick={() => preparerTransformation(doc)} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Préparer la transformation en Facture">
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                        </button>
+                      )}
+
                       {estAdmin && (
                         <button onClick={() => supprimerDocument(doc.id, doc.numero)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer définitivement"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                       )}
@@ -142,6 +246,13 @@ export default function JournalPage({ user, onOuvrirDocument }) {
         </div>
         {!isLoading && documentsFiltres.length === 0 && (<p className="p-8 text-center text-slate-500 text-base">Aucun document trouvé.</p>)}
       </div>
+
+      {/* COMPOSANT CACHÉ POUR L'IMPRESSION */}
+      {documentAImprimer && (
+        <div style={{ position: 'fixed', top: 0, left: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
+          <FacturePDF ref={pdfRef} data={documentAImprimer.data} user={documentAImprimer.user} />
+        </div>
+      )}
     </div>
   );
 }
