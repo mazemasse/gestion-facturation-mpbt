@@ -13,7 +13,7 @@ export default function ClientsPage() {
   // --- CHARGEMENT DES DONNÉES ---
   const chargerClients = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase.from('clients').select('*').order('id');
+    const { data, error } = await supabase.from('clients').select('*').order('nom');
     if (error) console.error(error);
     else setClients(data || []);
     setIsLoading(false);
@@ -56,11 +56,39 @@ export default function ClientsPage() {
     setNouveauClient({ ...nouveauClient, pays: paysSelectionne });
   };
 
-  // --- SOUMISSION (AJOUT / MODIFICATION) ---
+  // --- FONCTION DE FORMATAGE DU TÉLÉPHONE ---
+  const handleTelChange = (e) => {
+    let valeur = e.target.value.replace(/\D/g, ''); // On ne garde que les chiffres
+    let valeurFormatee = '';
+
+    // On applique un masque différent selon l'indicatif
+    if (indicatifActuel === '+221') {
+      // Format Sénégal : 77 123 45 67 (9 chiffres)
+      if (valeur.length > 0) valeurFormatee = valeur.substring(0, 2);
+      if (valeur.length > 2) valeurFormatee += ' ' + valeur.substring(2, 5);
+      if (valeur.length > 5) valeurFormatee += ' ' + valeur.substring(5, 7);
+      if (valeur.length > 7) valeurFormatee += ' ' + valeur.substring(7, 9);
+    } else if (indicatifActuel === '+33') {
+      // Format France : 6 12 34 56 78
+      if (valeur.length > 0) valeurFormatee = valeur.substring(0, 1);
+      if (valeur.length > 1) valeurFormatee += ' ' + valeur.substring(1, 3);
+      if (valeur.length > 3) valeurFormatee += ' ' + valeur.substring(3, 5);
+      if (valeur.length > 5) valeurFormatee += ' ' + valeur.substring(5, 7);
+      if (valeur.length > 7) valeurFormatee += ' ' + valeur.substring(7, 9);
+    } else {
+      // Format par défaut : on groupe par 2 ou 3
+      valeurFormatee = valeur.replace(/(\d{2})(?=\d)/g, '$1 ');
+    }
+
+    setNumeroLocal(valeurFormatee);
+  };
+
+  // --- SOUMISSION ---
   const handleAjouter = async (e) => {
     e.preventDefault();
     
-    const telComplet = `${indicatifActuel} ${numeroLocal.replace(/\D/g, '')}`;
+    // On reconstruit le numéro complet
+    const telComplet = `${indicatifActuel} ${numeroLocal}`;
 
     const clientFinal = { 
       ...nouveauClient, 
@@ -69,7 +97,6 @@ export default function ClientsPage() {
     };
 
     if (clientEnEdition) {
-      // MODIFICATION
       const { error } = await supabase.from('clients').update(clientFinal).eq('id', clientEnEdition);
       if (error) alert("Erreur : " + error.message);
       else {
@@ -79,9 +106,7 @@ export default function ClientsPage() {
         chargerClients();
       }
     } else {
-      // AJOUT AVEC ID SÉQUENTIEL
       const { data: existingClients } = await supabase.from('clients').select('id');
-      
       let prochainNum = 1;
       if (existingClients && existingClients.length > 0) {
         const numeros = existingClients.map(c => {
@@ -90,7 +115,6 @@ export default function ClientsPage() {
         });
         prochainNum = Math.max(...numeros) + 1;
       }
-      
       const nouvelId = `CL-${String(prochainNum).padStart(4, '0')}-MPBT`;
 
       const { error } = await supabase.from('clients').insert([{ ...clientFinal, id: nouvelId }]);
@@ -139,7 +163,6 @@ export default function ClientsPage() {
 
   return (
     <div className="space-y-3">
-      {/* Barre d'actions */}
       <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-slate-200">
         <div className="relative w-80">
           <input type="text" placeholder="Rechercher un client..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-base text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
@@ -150,7 +173,6 @@ export default function ClientsPage() {
         </button>
       </div>
 
-      {/* Formulaire compact */}
       {showForm && (
         <form onSubmit={handleAjouter} className={`p-4 rounded-xl shadow-md border-2 transition-colors duration-300 ${theme.border} ${theme.bg}`}>
           <div className="flex justify-between items-center mb-3">
@@ -190,7 +212,13 @@ export default function ClientsPage() {
                 </select>
                 <div className="flex-1 flex rounded-lg border border-slate-300 overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-500">
                   <span className="px-2 py-2 bg-slate-100 text-slate-600 text-xs font-bold border-r border-slate-300 flex items-center">{indicatifActuel}</span>
-                  <input required value={numeroLocal} onChange={(e) => setNumeroLocal(e.target.value.replace(/[^\d\s]/g, ''))} placeholder="77 123 45 67" className="w-full px-2 py-2 bg-transparent border-none text-sm text-slate-800 focus:outline-none" />
+                  <input 
+                    required 
+                    value={numeroLocal} 
+                    onChange={handleTelChange} 
+                    placeholder={indicatifActuel === '+221' ? "77 123 45 67" : "XX XXX XX XX"} 
+                    className="w-full px-2 py-2 bg-transparent border-none text-sm text-slate-800 focus:outline-none" 
+                  />
                 </div>
               </div>
             </div>
@@ -222,7 +250,6 @@ export default function ClientsPage() {
         </form>
       )}
 
-      {/* Tableau */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-100 text-slate-800 border-b-2 border-slate-300 text-sm uppercase tracking-wider">
