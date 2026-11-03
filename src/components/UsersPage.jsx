@@ -17,17 +17,42 @@ export default function UsersPage({ currentUser }) {
   const isAdmin = currentUser?.nom === 'MASSE NDOYE';
   const userCible = userEnEdition ? users.find(u => u.id === userEnEdition) : null;
 
-  // --- CHARGEMENT DES UTILISATEURS ---
+  // --- CHARGEMENT DES UTILISATEURS (avec attente de la session) ---
   const chargerUsers = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase.from('utilisateurs').select('*').order('nom');
-    if (error) console.error(error);
-    else setUsers(data || []);
+    
+    // 1. Attendre que la session soit active
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      console.log("Pas de session active, impossible de charger les utilisateurs.");
+      setIsLoading(false);
+      return;
+    }
+
+    // 2. Charger les utilisateurs
+    const { data, error } = await supabase
+      .from('utilisateurs')
+      .select('*')
+      .order('nom');
+
+    if (error) {
+      console.error("Erreur de chargement:", error);
+      alert("Erreur de chargement des utilisateurs : " + error.message);
+    } else {
+      console.log("Utilisateurs chargés :", data); // Pour le débogage
+      setUsers(data || []);
+    }
     setIsLoading(false);
   };
 
   useEffect(() => {
-    chargerUsers();
+    // On attend un petit délai pour être sûr que l'authentification est terminée
+    const timer = setTimeout(() => {
+      chargerUsers();
+    }, 500);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   // --- LOGIQUE DE SÉCURITÉ ---
@@ -104,7 +129,6 @@ export default function UsersPage({ currentUser }) {
   };
 
   // Si les utilisateurs ne sont pas encore chargés, on affiche juste le profil
-  // (Cela évite une erreur si users est vide au premier rendu)
   const usersAffiches = isAdmin ? users : users.filter(u => u.id === currentUser?.id);
 
   return (
