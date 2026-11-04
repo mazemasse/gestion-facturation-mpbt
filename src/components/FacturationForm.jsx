@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { toJpeg } from 'html-to-image'; // <-- IMPORT MODIFIÉ
+import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { getNextNumero } from '../data/mockData';
 import { COMPANY_DATA } from '../data/companyData';
@@ -21,6 +21,9 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTransformation, setIsTransformation] = useState(false);
   const [numeroOrigine, setNumeroOrigine] = useState(null);
+  
+  // Nouvel état pour la notification
+  const [notification, setNotification] = useState(null);
 
   // --- DONNÉES SUPABASE ---
   const [clients, setClients] = useState([]);
@@ -146,7 +149,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const { error: errDetails } = await supabase.from('facture_details').insert(details);
       if (errDetails) throw new Error("Erreur sauvegarde détails : " + errDetails.message);
 
-      // 3. Génération du PDF (COMPRESSÉ)
+      // 3. Génération du PDF
       const dataUrl = await toJpeg(componentRef.current, { 
         quality: 0.95, 
         pixelRatio: 1.5, 
@@ -158,15 +161,28 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const pdfHeight = (componentRef.current.offsetHeight * pdfWidth) / componentRef.current.offsetWidth;
       
       pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`);
-
-      alert(`Document ${numeroDoc} généré et enregistré avec succès !`);
       
-      // 4. Si c'était une transformation, on supprime le devis d'origine
+      const nomFichier = `${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`;
+      pdf.save(nomFichier);
+
+      // 4. Ouvrir automatiquement le PDF dans un nouvel onglet
+      const pdfBlob = pdf.output('blob');
+      const url = URL.createObjectURL(pdfBlob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      // 5. Afficher la notification de succès (au lieu de l'alert)
+      setNotification({
+        type: 'success',
+        message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e) avec succès.`
+      });
+      setTimeout(() => setNotification(null), 5000);
+
+      // 6. Si c'était une transformation, on supprime le devis d'origine
       if (isTransformation && numeroOrigine) {
         await supabase.from('facture_details').delete().eq('facture_numero', numeroOrigine);
         await supabase.from('factures').delete().eq('numero', numeroOrigine);
-        alert(`Le devis ${numeroOrigine} a été supprimé (transformé en facture).`);
+        // On peut ajouter une petite notification pour le devis supprimé si on veut
       }
       
       // Réinitialisation
@@ -179,6 +195,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
     } catch (error) {
       console.error(error);
+      // On garde l'alert pour les erreurs critiques
       alert(error.message);
     } finally {
       setIsGenerating(false);
@@ -197,8 +214,21 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
       
+      {/* --- NOTIFICATION PERSONNALISÉE --- */}
+      {notification && (
+        <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in
+          ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+          {notification.type === 'success' ? (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+          ) : (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          )}
+          {notification.message}
+        </div>
+      )}
+
       {/* COLONNE GAUCHE : SAISIE */}
       <div className="lg:col-span-2 space-y-6">
         
