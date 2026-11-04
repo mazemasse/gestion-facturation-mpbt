@@ -7,6 +7,15 @@ import StatsPage from './StatsPage';
 import UsersPage from './UsersPage';
 import ParametresPage from './ParametresPage';
 
+// Fonction utilitaire pour récupérer la bonne image
+const getPhotoProfil = (nom) => {
+  const nomNettoye = nom ? nom.toUpperCase() : '';
+  if (nomNettoye.includes('MASSE')) return '/masse.png';
+  if (nomNettoye.includes('WILANE')) return '/wilane.png';
+  if (nomNettoye.includes('MALADO')) return '/malado.png';
+  return null;
+};
+
 const MODULES = [
   { id: 'facture', label: 'Facturation', icon: '📄', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-blue-600', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
   { id: 'clients', label: 'Clients', icon: '👥', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-indigo-600', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
@@ -22,6 +31,9 @@ export default function Dashboard({ user, onLogout }) {
 
   const availableModules = MODULES.filter(mod => mod.roles.includes(user.role));
   const peutAccederParametres = user.role === 'Administrateur';
+  
+  // On récupère la photo de l'utilisateur connecté
+  const photoProfil = getPhotoProfil(user.nom);
 
   const handlePreparerFacture = (data) => {
     setDonneesInitiales(data);
@@ -44,7 +56,20 @@ export default function Dashboard({ user, onLogout }) {
             </button>
             <div><h1 className="text-xl font-bold text-white">{currentMod.label}</h1></div>
           </div>
-          <span className="text-sm font-medium text-white bg-white/20 px-3 py-1 rounded-full">{user.nom}</span>
+          
+          {/* Affichage de la photo dans le header du module */}
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-white/30">
+               {photoProfil ? (
+                  <img src={photoProfil} alt="Profil" className="w-full h-full object-cover" />
+               ) : (
+                  <div className="w-full h-full bg-white/20 flex items-center justify-center text-white text-xs font-bold">
+                    {user.nom.charAt(0)}
+                  </div>
+               )}
+            </div>
+            <span className="text-sm font-medium text-white bg-white/20 px-3 py-1 rounded-full">{user.nom}</span>
+          </div>
         </header>
 
         <main className="flex-1 p-6">
@@ -78,10 +103,24 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-bold text-slate-800">{user.nom}</p>
-            <p className="text-xs text-emerald-600 font-medium">{user.role}</p>
+          
+          {/* Affichage de la photo et des infos utilisateur */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-sm">
+               {photoProfil ? (
+                  <img src={photoProfil} alt="Profil" className="w-full h-full object-cover" />
+               ) : (
+                  <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-500">
+                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  </div>
+               )}
+            </div>
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-bold text-slate-800">{user.nom}</p>
+              <p className="text-xs text-emerald-600 font-medium">{user.role}</p>
+            </div>
           </div>
+          
           <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             Déconnexion

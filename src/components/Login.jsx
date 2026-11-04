@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
+// Fonction utilitaire pour récupérer la bonne image
+const getPhotoProfil = (nom) => {
+  const nomNettoye = nom ? nom.toUpperCase() : '';
+  if (nomNettoye.includes('MASSE')) return '/masse.png';
+  if (nomNettoye.includes('WILANE')) return '/wilane.png';
+  if (nomNettoye.includes('MALADO')) return '/malado.png';
+  return null; // Retourne null si aucune photo n'est trouvée
+};
+
 export default function Login({ onLoginSuccess }) {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -77,39 +86,50 @@ export default function Login({ onLoginSuccess }) {
           <div className="space-y-2 mb-5 max-h-64 overflow-y-auto pr-2">
             {users.length === 0 ? (
               <p className="text-center text-sm text-slate-500 py-4">Chargement des profils...</p>
-            ) : users.map((user) => (
-              <button
-                key={user.id}
-                onClick={() => { setSelectedUser(user); setError(''); }}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-200 text-left ${
-                  selectedUser?.id === user.id
-                    ? 'border-emerald-500 bg-emerald-50/50 shadow-sm'
-                    : 'border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/30'
-                }`}
-              >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  user.role === 'Administrateur' ? 'bg-blue-500' : 
-                  user.role === 'Directeur Commercial' ? 'bg-indigo-500' : 'bg-emerald-500'
-                } text-white shadow-sm`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{user.nom}</p>
-                  <p className="text-[11px] text-slate-500 truncate">{user.role}</p>
-                </div>
-
-                {selectedUser?.id === user.id && (
-                  <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
+            ) : users.map((user) => {
+              const photo = getPhotoProfil(user.nom); // On cherche la photo
+              
+              return (
+                <button
+                  key={user.id}
+                  onClick={() => { setSelectedUser(user); setError(''); }}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-200 text-left ${
+                    selectedUser?.id === user.id
+                      ? 'border-emerald-500 bg-emerald-50/50 shadow-sm'
+                      : 'border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/30'
+                  }`}
+                >
+                  {/* --- AFFICHAGE DE LA PHOTO OU DE L'ICÔNE --- */}
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
+                    {photo ? (
+                      <img src={photo} alt={user.nom} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className={`w-full h-full flex items-center justify-center text-white ${
+                        user.role === 'Administrateur' ? 'bg-blue-500' : 
+                        user.role === 'Directeur Commercial' ? 'bg-indigo-500' : 'bg-emerald-500'
+                      }`}>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                    )}
                   </div>
-                )}
-              </button>
-            ))}
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800 truncate">{user.nom}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{user.role}</p>
+                  </div>
+
+                  {selectedUser?.id === user.id && (
+                    <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           <form onSubmit={handleSubmit}>
