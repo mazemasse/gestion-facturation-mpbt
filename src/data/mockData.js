@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabaseClient'; // Assurez-vous que le chemin vers supabaseClient est correct
+
 export const CLIENTS = [
   { id: 'CL-0001-MPBT', nom: 'MINISTÈRE DE LA COMMUNICATION', contact: 'M. Diop', tel: '+221 77 123 45 67', adresse: 'Dakar Plateau' },
   { id: 'CL-0002-MPBT', nom: 'SENEGAL TELECOM', contact: 'Mme Fall', tel: '+221 33 800 00 00', adresse: 'Route du Service Géographique' },
@@ -15,15 +17,35 @@ export const PRODUITS = [
   { id: 'PR-0007-MPBT', designation: 'Chambre VIP Double', categorie: 'Chambres', prixUnitaire: 45000, unite: 'Nuitée' },
 ];
 
-// Compteurs simulés pour la numérotation
-export const getNextNumero = (type) => {
+// --- NOUVELLE FONCTION DE NUMÉROTATION BASÉE SUR SUPABASE ---
+export const getNextNumero = async (type) => {
   const annee = new Date().getFullYear();
-  // Dans une vraie application, on lirait la dernière ligne de la base de données
-  // Ici, on simule avec une variable locale ou localStorage
-  let dernierNum = parseInt(localStorage.getItem(`dernierNum_${type}`) || '0');
-  let nouveauNum = dernierNum + 1;
-  localStorage.setItem(`dernierNum_${type}`, nouveauNum);
-  
   const prefixe = type === 'Facture' ? 'F' : 'D';
-  return `${prefixe}-${annee}-${String(nouveauNum).padStart(4, '0')}`;
+  
+  // On interroge Supabase pour trouver tous les numéros de l'année en cours
+  const { data, error } = await supabase
+    .from('factures')
+    .select('numero')
+    .like('numero', `${prefixe}-${annee}-%`);
+
+  if (error) {
+    console.error("Erreur lors de la récupération du numéro:", error);
+    return `${prefixe}-${annee}-0001`; // En cas d'erreur, on repart à 1
+  }
+
+  let maxNum = 0;
+  if (data && data.length > 0) {
+    data.forEach(item => {
+      // On extrait la partie numérique (ex: F-2026-0015 -> 15)
+      const parts = item.numero.split('-');
+      const num = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    });
+  }
+
+  // On incrémente et on formate sur 4 chiffres
+  const prochainNum = maxNum + 1;
+  return `${prefixe}-${annee}-${String(prochainNum).padStart(4, '0')}`;
 };

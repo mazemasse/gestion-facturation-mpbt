@@ -22,7 +22,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const [isTransformation, setIsTransformation] = useState(false);
   const [numeroOrigine, setNumeroOrigine] = useState(null);
   
-  // Nouvel état pour la notification
   const [notification, setNotification] = useState(null);
 
   // --- DONNÉES SUPABASE ---
@@ -31,7 +30,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const componentRef = useRef(null);
 
-  // --- CHARGEMENT INITIAL (Clients et Produits) ---
+  // --- CHARGEMENT INITIAL ---
   useEffect(() => {
     const chargerDonnees = async () => {
       const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
@@ -55,9 +54,13 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   }, [donneesInitiales, onResetInitiales]);
 
-  // --- NUMÉROTATION ---
+  // --- NUMÉROTATION (CORRIGÉE POUR L'ASYNCHRONE) ---
   useEffect(() => {
-    setNumeroDoc(getNextNumero(typeDoc));
+    const chargerNumero = async () => {
+      const num = await getNextNumero(typeDoc);
+      setNumeroDoc(num);
+    };
+    chargerNumero();
   }, [typeDoc]);
 
   const dateCreation = new Date();
@@ -99,7 +102,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   };
 
   // --- ANNULER LA TRANSFORMATION ---
-  const annulerTransformation = () => {
+  const annulerTransformation = async () => {
     if (window.confirm("Voulez-vous annuler la transformation du devis ? Les données seront perdues.")) {
       setPanier([]);
       setClientSelectionne('');
@@ -107,11 +110,13 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setIsTransformation(false);
       setNumeroOrigine(null);
       setTypeDoc('Facture');
-      setNumeroDoc(getNextNumero('Facture'));
+      
+      const num = await getNextNumero('Facture');
+      setNumeroDoc(num);
     }
   };
 
-  // --- FONCTION D'EXPORT PDF + SAUVEGARDE SUPABASE (COMPRESSÉE) ---
+  // --- FONCTION D'EXPORT PDF + SAUVEGARDE SUPABASE ---
   const genererPDF = async () => {
     if (!componentRef.current) return;
     setIsGenerating(true);
@@ -165,24 +170,23 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const nomFichier = `${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`;
       pdf.save(nomFichier);
 
-      // 4. Ouvrir automatiquement le PDF dans un nouvel onglet
+      // 4. Ouvrir automatiquement le PDF
       const pdfBlob = pdf.output('blob');
       const url = URL.createObjectURL(pdfBlob);
       window.open(url, '_blank');
       setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-      // 5. Afficher la notification de succès (au lieu de l'alert)
+      // 5. Notification
       setNotification({
         type: 'success',
         message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e) avec succès.`
       });
       setTimeout(() => setNotification(null), 5000);
 
-      // 6. Si c'était une transformation, on supprime le devis d'origine
+      // 6. Si transformation, supprimer le devis
       if (isTransformation && numeroOrigine) {
         await supabase.from('facture_details').delete().eq('facture_numero', numeroOrigine);
         await supabase.from('factures').delete().eq('numero', numeroOrigine);
-        // On peut ajouter une petite notification pour le devis supprimé si on veut
       }
       
       // Réinitialisation
@@ -191,11 +195,13 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setObjet('');
       setIsTransformation(false);
       setNumeroOrigine(null);
-      setNumeroDoc(getNextNumero(typeDoc));
+      
+      // On recharge le numéro de manière asynchrone
+      const nouveauNum = await getNextNumero(typeDoc);
+      setNumeroDoc(nouveauNum);
 
     } catch (error) {
       console.error(error);
-      // On garde l'alert pour les erreurs critiques
       alert(error.message);
     } finally {
       setIsGenerating(false);
@@ -216,7 +222,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
       
-      {/* --- NOTIFICATION PERSONNALISÉE --- */}
+      {/* --- NOTIFICATION --- */}
       {notification && (
         <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in
           ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
