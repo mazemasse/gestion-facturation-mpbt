@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 const CATEGORIES_DEFAUT = ['Restauration', 'Espaces publicitaires', 'Salles de rencontre', 'Chambres'];
 const UNITES_DEFAUT = ['Unité', 'Forfait', 'Jour', 'Nuitée', 'Pers.'];
 
-export default function ProduitsPage() {
+export default function ProduitsPage({ user }) {
   // --- ÉTATS ---
   const [produits, setProduits] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,20 +24,15 @@ export default function ProduitsPage() {
     designation: '', categorie: CATEGORIES_DEFAUT[0], prix_unitaire: '', unite: UNITES_DEFAUT[0]
   });
 
+  // --- SÉCURITÉ : Qui peut modifier ? ---
+  const peutModifier = user?.role === 'Administrateur' || user?.role === 'Directeur Commercial';
+
   // --- CHARGEMENT DES DONNÉES ---
   const chargerProduits = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('produits')
-      .select('*')
-      .order('id', { ascending: true });
-
-    if (error) {
-      console.error(error);
-      alert("Impossible de charger les produits.");
-    } else {
-      setProduits(data || []);
-    }
+    const { data, error } = await supabase.from('produits').select('*').order('id', { ascending: true });
+    if (error) console.error(error);
+    else setProduits(data || []);
     setIsLoading(false);
   };
 
@@ -47,6 +42,7 @@ export default function ProduitsPage() {
 
   // --- GESTION DES CATÉGORIES / UNITÉS ---
   const ajouterCategorie = () => {
+    if (!peutModifier) return;
     if (nouvelleCategorie.trim() && !categories.includes(nouvelleCategorie.trim())) {
       setCategories([...categories, nouvelleCategorie.trim()]);
       setNouveauProduit({ ...nouveauProduit, categorie: nouvelleCategorie.trim() });
@@ -56,6 +52,7 @@ export default function ProduitsPage() {
   };
 
   const supprimerCategorie = (cat) => {
+    if (!peutModifier) return;
     if (window.confirm(`Supprimer la catégorie "${cat}" ?`)) {
       setCategories(categories.filter(c => c !== cat));
       if (nouveauProduit.categorie === cat) setNouveauProduit({ ...nouveauProduit, categorie: categories[0] });
@@ -63,6 +60,7 @@ export default function ProduitsPage() {
   };
 
   const ajouterUnite = () => {
+    if (!peutModifier) return;
     if (nouvelleUnite.trim() && !unites.includes(nouvelleUnite.trim())) {
       setUnites([...unites, nouvelleUnite.trim()]);
       setNouveauProduit({ ...nouveauProduit, unite: nouvelleUnite.trim() });
@@ -72,6 +70,7 @@ export default function ProduitsPage() {
   };
 
   const supprimerUnite = (uni) => {
+    if (!peutModifier) return;
     if (window.confirm(`Supprimer l'unité "${uni}" ?`)) {
       setUnites(unites.filter(u => u !== uni));
       if (nouveauProduit.unite === uni) setNouveauProduit({ ...nouveauProduit, unite: unites[0] });
@@ -81,27 +80,16 @@ export default function ProduitsPage() {
   // --- ENREGISTREMENT (AJOUT OU MODIFICATION) ---
   const handleAjouter = async (e) => {
     e.preventDefault();
+    if (!peutModifier) return;
     
     if (produitEnEdition) {
-      // MODIFICATION
-      const { error } = await supabase
-        .from('produits')
-        .update({
-          designation: nouveauProduit.designation,
-          categorie: nouveauProduit.categorie,
-          prix_unitaire: Number(nouveauProduit.prix_unitaire),
-          unite: nouveauProduit.unite
-        })
-        .eq('id', produitEnEdition);
-
-      if (error) {
-        alert("Erreur de modification : " + error.message);
-        return;
-      }
+      const { error } = await supabase.from('produits').update({
+        designation: nouveauProduit.designation, categorie: nouveauProduit.categorie,
+        prix_unitaire: Number(nouveauProduit.prix_unitaire), unite: nouveauProduit.unite
+      }).eq('id', produitEnEdition);
+      if (error) return alert("Erreur : " + error.message);
     } else {
-      // AJOUT AVEC ID SÉQUENTIEL
       const { data: existingProduits } = await supabase.from('produits').select('id');
-      
       let prochainNum = 1;
       if (existingProduits && existingProduits.length > 0) {
         const numeros = existingProduits.map(p => {
@@ -110,33 +98,21 @@ export default function ProduitsPage() {
         });
         prochainNum = Math.max(...numeros) + 1;
       }
-      
       const nouvelId = `PR-${String(prochainNum).padStart(4, '0')}-MPBT`;
-
-      const { error } = await supabase
-        .from('produits')
-        .insert([{ 
-          id: nouvelId,
-          designation: nouveauProduit.designation,
-          categorie: nouveauProduit.categorie,
-          prix_unitaire: Number(nouveauProduit.prix_unitaire),
-          unite: nouveauProduit.unite
-        }]);
-
-      if (error) {
-        alert("Erreur d'ajout : " + error.message);
-        return;
-      }
+      const { error } = await supabase.from('produits').insert([{ 
+        id: nouvelId, designation: nouveauProduit.designation, categorie: nouveauProduit.categorie,
+        prix_unitaire: Number(nouveauProduit.prix_unitaire), unite: nouveauProduit.unite
+      }]);
+      if (error) return alert("Erreur : " + error.message);
     }
-
     setNouveauProduit({ designation: '', categorie: categories[0], prix_unitaire: '', unite: unites[0] });
     setProduitEnEdition(null);
     setShowForm(false);
     chargerProduits();
   };
 
-  // --- SUPPRESSION ---
   const supprimerProduit = async (id) => {
+    if (!peutModifier) return;
     if (window.confirm("Voulez-vous vraiment supprimer ce produit ?")) {
       const { error } = await supabase.from('produits').delete().eq('id', id);
       if (error) alert("Erreur : " + error.message);
@@ -144,14 +120,9 @@ export default function ProduitsPage() {
     }
   };
 
-  // --- PASSAGE EN MODE ÉDITION ---
   const modifierProduit = (produit) => {
-    setNouveauProduit({
-      designation: produit.designation,
-      categorie: produit.categorie,
-      prix_unitaire: produit.prix_unitaire,
-      unite: produit.unite
-    });
+    if (!peutModifier) return;
+    setNouveauProduit({ designation: produit.designation, categorie: produit.categorie, prix_unitaire: produit.prix_unitaire, unite: produit.unite });
     setProduitEnEdition(produit.id);
     setShowForm(true);
   };
@@ -176,12 +147,16 @@ export default function ProduitsPage() {
           <input type="text" placeholder="Rechercher un produit..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-base text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
           <svg className="w-5 h-5 text-slate-500 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
-        <button onClick={() => { if (showForm) annulerEdition(); else setShowForm(true); }} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-base font-bold rounded-lg transition shadow-md">
-          {showForm ? 'Fermer' : '+ Nouveau Produit'}
-        </button>
+        
+        {/* Bouton Nouveau Produit (seulement si peutModifier) */}
+        {peutModifier && (
+          <button onClick={() => { if (showForm) annulerEdition(); else setShowForm(true); }} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-base font-bold rounded-lg transition shadow-md">
+            {showForm ? 'Fermer' : '+ Nouveau Produit'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {showForm && peutModifier && (
         <form onSubmit={handleAjouter} className="bg-white p-5 rounded-xl shadow-md border-2 border-purple-200">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
             <div className="md:col-span-4">
@@ -256,30 +231,35 @@ export default function ProduitsPage() {
               <th className="px-4 py-4 font-extrabold">Catégorie</th>
               <th className="px-4 py-4 font-extrabold text-center">Unité</th>
               <th className="px-4 py-4 font-extrabold text-right">Prix Unitaire</th>
-              <th className="px-4 py-4 font-extrabold text-right">Actions</th>
+              {/* Colonne Actions cachée si pas de droit de modification */}
+              {peutModifier && <th className="px-4 py-4 font-extrabold text-right">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {isLoading ? (
-              <tr><td colSpan="6" className="p-8 text-center text-slate-500 text-base">Chargement des produits...</td></tr>
+              <tr><td colSpan={peutModifier ? 6 : 5} className="p-8 text-center text-slate-500 text-base">Chargement des produits...</td></tr>
             ) : produitsFiltres.map(produit => (
               <tr 
                 key={produit.id} 
-                className="hover:bg-purple-50 transition-colors cursor-pointer"
+                className={peutModifier ? "hover:bg-purple-50 transition-colors cursor-pointer" : ""}
                 onDoubleClick={() => modifierProduit(produit)}
-                title="Double-cliquez pour modifier"
+                title={peutModifier ? "Double-cliquez pour modifier" : ""}
               >
                 <td className="px-4 py-4 text-base text-slate-700 font-medium"><span className="bg-slate-100 px-2 py-1 rounded-md font-semibold">{produit.id}</span></td>
                 <td className="px-4 py-4 font-bold text-slate-900 text-base">{produit.designation}</td>
                 <td className="px-4 py-4 text-slate-700 text-base"><span className="bg-slate-100 px-2 py-1 rounded-md text-sm font-semibold">{produit.categorie}</span></td>
                 <td className="px-4 py-4 text-center text-slate-700 text-base font-medium">{produit.unite}</td>
                 <td className="px-4 py-4 text-right font-bold text-purple-700 text-base">{formatMonnaie(produit.prix_unitaire)}</td>
-                <td className="px-4 py-4 text-right">
-                  <div className="flex justify-end gap-3">
-                    <button onClick={(e) => { e.stopPropagation(); modifierProduit(produit); }} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Modifier"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                    <button onClick={(e) => { e.stopPropagation(); supprimerProduit(produit.id); }} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                  </div>
-                </td>
+                
+                {/* Boutons d'action seulement si peutModifier */}
+                {peutModifier && (
+                  <td className="px-4 py-4 text-right">
+                    <div className="flex justify-end gap-3">
+                      <button onClick={(e) => { e.stopPropagation(); modifierProduit(produit); }} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Modifier"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                      <button onClick={(e) => { e.stopPropagation(); supprimerProduit(produit.id); }} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

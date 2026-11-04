@@ -19,10 +19,10 @@ const getPhotoProfil = (nom) => {
 const MODULES = [
   { id: 'facture', label: 'Facturation', icon: '📄', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-blue-600', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
   { id: 'clients', label: 'Clients', icon: '👥', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-indigo-600', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
-  { id: 'produits', label: 'Produits', icon: '📦', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-purple-600', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
+  { id: 'produits', label: 'Produits', icon: '📦', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-purple-600', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
   { id: 'journal', label: 'Journal', icon: '📊', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-teal-600', bg: 'bg-teal-50', headerColor: 'bg-teal-600' },
-  { id: 'stats', label: 'Statistiques', icon: '📈', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-rose-600', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
-  { id: 'users', label: 'Utilisateurs', icon: '🔐', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-slate-600', bg: 'bg-slate-100', headerColor: 'bg-slate-700' },
+  { id: 'stats', label: 'Statistiques', icon: '📈', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-rose-600', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
+  { id: 'users', label: 'Utilisateurs', icon: '🔐', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-slate-600', bg: 'bg-slate-100', headerColor: 'bg-slate-700' },
 ];
 
 export default function Dashboard({ user, onLogout }) {
@@ -79,8 +79,8 @@ export default function Dashboard({ user, onLogout }) {
               onResetInitiales={() => setDonneesInitiales(null)} 
             />
           )}
-          {activeModule === 'clients' && <ClientsPage />}
-          {activeModule === 'produits' && <ProduitsPage />}
+          {activeModule === 'clients' && <ClientsPage user={user} />}
+          {activeModule === 'produits' && <ProduitsPage user={user} />}
           {activeModule === 'journal' && <JournalPage user={user} onPreparerFacture={handlePreparerFacture} />}
           {activeModule === 'stats' && <StatsPage />}
           {activeModule === 'users' && <UsersPage currentUser={user} />}
@@ -94,23 +94,15 @@ export default function Dashboard({ user, onLogout }) {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
-          {/* REMPLACEMENT DU CARRE "MP" PAR LE LOGO */}
           <div className="w-10 h-10 flex items-center justify-center">
-            <img 
-              src="/logo.png" 
-              alt="Logo MPBT" 
-              className="h-10 w-auto object-contain" 
-              onError={(e) => { e.target.style.display = 'none'; }} 
-            />
+            <img src="/logo.png" alt="Logo MPBT" className="h-10 w-auto object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
           </div>
-          
           <div>
             <h1 className="text-lg font-bold text-slate-800 leading-tight">Gestion Commerciale</h1>
             <p className="text-xs text-slate-500">Maison de la Presse Babacar Touré</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-sm">
                {photoProfil ? (
@@ -126,7 +118,6 @@ export default function Dashboard({ user, onLogout }) {
               <p className="text-xs text-emerald-600 font-medium">{user.role}</p>
             </div>
           </div>
-          
           <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             Déconnexion
