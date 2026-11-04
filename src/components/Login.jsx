@@ -7,7 +7,7 @@ const getPhotoProfil = (nom) => {
   if (nomNettoye.includes('MASSE')) return '/masse.png';
   if (nomNettoye.includes('WILANE')) return '/wilane.png';
   if (nomNettoye.includes('MALADO')) return '/malado.png';
-  return null; // Retourne null si aucune photo n'est trouvée
+  return null;
 };
 
 export default function Login({ onLoginSuccess }) {
@@ -40,7 +40,6 @@ export default function Login({ onLoginSuccess }) {
     setLoading(true);
 
     try {
-      // Connexion via Supabase Auth
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: selectedUser.email,
         password: password,
@@ -48,7 +47,6 @@ export default function Login({ onLoginSuccess }) {
 
       if (authError) throw authError;
 
-      // On transmet l'utilisateur complet à l'application
       onLoginSuccess({
         id: selectedUser.id,
         nom: selectedUser.nom,
@@ -69,8 +67,14 @@ export default function Login({ onLoginSuccess }) {
       <div className="w-full max-w-md">
         
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/30 mb-3">
-            <span className="text-white text-2xl font-bold tracking-wider">MP</span>
+          {/* REMPLACEMENT DU CARRE "MP" PAR LE LOGO */}
+          <div className="inline-flex items-center justify-center mb-3">
+            <img 
+              src="/logo.png" 
+              alt="Logo MPBT" 
+              className="h-20 w-auto object-contain" 
+              onError={(e) => { e.target.style.display = 'none'; }} 
+            />
           </div>
           <h1 className="text-xl font-bold text-slate-800 tracking-wide">Gestion Commerciale</h1>
           <p className="text-emerald-600 text-sm font-medium mt-0.5">Maison de la Presse Babacar Touré</p>
@@ -87,7 +91,7 @@ export default function Login({ onLoginSuccess }) {
             {users.length === 0 ? (
               <p className="text-center text-sm text-slate-500 py-4">Chargement des profils...</p>
             ) : users.map((user) => {
-              const photo = getPhotoProfil(user.nom); // On cherche la photo
+              const photo = getPhotoProfil(user.nom);
               
               return (
                 <button
@@ -99,7 +103,6 @@ export default function Login({ onLoginSuccess }) {
                       : 'border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/30'
                   }`}
                 >
-                  {/* --- AFFICHAGE DE LA PHOTO OU DE L'ICÔNE --- */}
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
                     {photo ? (
                       <img src={photo} alt={user.nom} className="w-full h-full object-cover" />

@@ -32,7 +32,6 @@ export default function Dashboard({ user, onLogout }) {
   const availableModules = MODULES.filter(mod => mod.roles.includes(user.role));
   const peutAccederParametres = user.role === 'Administrateur';
   
-  // On récupère la photo de l'utilisateur connecté
   const photoProfil = getPhotoProfil(user.nom);
 
   const handlePreparerFacture = (data) => {
@@ -57,7 +56,6 @@ export default function Dashboard({ user, onLogout }) {
             <div><h1 className="text-xl font-bold text-white">{currentMod.label}</h1></div>
           </div>
           
-          {/* Affichage de la photo dans le header du module */}
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full overflow-hidden border border-white/30">
                {photoProfil ? (
@@ -96,7 +94,16 @@ export default function Dashboard({ user, onLogout }) {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center"><span className="text-white text-lg font-bold">MP</span></div>
+          {/* REMPLACEMENT DU CARRE "MP" PAR LE LOGO */}
+          <div className="w-10 h-10 flex items-center justify-center">
+            <img 
+              src="/logo.png" 
+              alt="Logo MPBT" 
+              className="h-10 w-auto object-contain" 
+              onError={(e) => { e.target.style.display = 'none'; }} 
+            />
+          </div>
+          
           <div>
             <h1 className="text-lg font-bold text-slate-800 leading-tight">Gestion Commerciale</h1>
             <p className="text-xs text-slate-500">Maison de la Presse Babacar Touré</p>
@@ -104,7 +111,6 @@ export default function Dashboard({ user, onLogout }) {
         </div>
         <div className="flex items-center gap-4">
           
-          {/* Affichage de la photo et des infos utilisateur */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-sm">
                {photoProfil ? (
