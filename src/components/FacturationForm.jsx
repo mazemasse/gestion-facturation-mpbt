@@ -13,6 +13,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const [clientSelectionne, setClientSelectionne] = useState('');
   const [objet, setObjet] = useState('');
   const [modePaiement, setModePaiement] = useState('Virement');
+  
+  // NOUVEAUX ÉTATS POUR LA PÉRIODE
+  const [dateDebut, setDateDebut] = useState('');
+  const [dateFin, setDateFin] = useState('');
+  const [nombreJours, setNombreJours] = useState(1);
+
   const [produitSelectionne, setProduitSelectionne] = useState('');
   const [quantite, setQuantite] = useState(1);
   const [panier, setPanier] = useState([]);
@@ -40,6 +46,21 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     };
     chargerDonnees();
   }, []);
+
+  // --- CALCUL AUTOMATIQUE DU NOMBRE DE JOURS ---
+  useEffect(() => {
+    if (dateDebut && dateFin) {
+      const debut = new Date(dateDebut);
+      const fin = new Date(dateFin);
+      if (fin >= debut) {
+        const diffTime = Math.abs(fin - debut);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 pour inclure le jour de début
+        setNombreJours(diffDays);
+      } else {
+        setNombreJours(1);
+      }
+    }
+  }, [dateDebut, dateFin]);
 
   // --- GESTION DES DONNÉES INITIALES (Transformation Devis) ---
   useEffect(() => {
@@ -71,13 +92,18 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const ajouterAuPanier = () => {
     if (!produitSelectionne || quantite < 1) return;
     const produitInfo = produits.find(p => p.designation === produitSelectionne);
+    
+    // Calcul du total en intégrant le nombre de jours
+    const total = produitInfo.prix_unitaire * parseInt(quantite) * parseInt(nombreJours);
+
     setPanier([...panier, {
       id: Date.now(),
       designation: produitInfo.designation,
       unite: produitInfo.unite,
       quantite: parseInt(quantite),
+      jours: parseInt(nombreJours), // On stocke le nombre de jours
       prixUnitaire: produitInfo.prix_unitaire,
-      total: produitInfo.prix_unitaire * parseInt(quantite)
+      total: total
     }]);
     setProduitSelectionne('');
     setQuantite(1);
@@ -98,6 +124,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const pdfData = {
     numeroDoc, typeDoc, client: clientSelectionne, clientInfo, objet,
     dateFormatee, heureFormatee, modePaiement,
+    dateDebut, dateFin, nombreJours, // On transmet les dates au PDF
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
@@ -131,6 +158,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
           client_nom: clientSelectionne,
           objet: objet,
           mode_paiement: modePaiement,
+          date_debut: dateDebut || null, // Ajout des dates
+          date_fin: dateFin || null,     // Ajout des dates
           sous_total_ht: sousTotalHT,
           tva: tva,
           remise: remiseTTC,
@@ -147,6 +176,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         designation: item.designation,
         unite: item.unite,
         quantite: item.quantite,
+        jours: item.jours, // Ajout du nombre de jours
         prix_unitaire: item.prixUnitaire,
         total: item.total
       }));
@@ -193,10 +223,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setPanier([]);
       setClientSelectionne('');
       setObjet('');
+      setDateDebut('');
+      setDateFin('');
+      setNombreJours(1);
       setIsTransformation(false);
       setNumeroOrigine(null);
       
-      // On recharge le numéro de manière asynchrone
       const nouveauNum = await getNextNumero(typeDoc);
       setNumeroDoc(nouveauNum);
 
@@ -292,6 +324,22 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Objet de la prestation</label>
               <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex: Soirée de gala..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
+
+            {/* NOUVELLE SECTION PÉRIODE */}
+            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Date de début</label>
+                <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Date de fin</label>
+                <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Nombre de jours (auto)</label>
+                <input type="number" value={nombreJours} onChange={(e) => setNombreJours(parseInt(e.target.value))} className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-sm font-bold text-center" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -332,6 +380,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
                     <tr className="text-slate-500 border-b border-slate-200">
                       <th className="pb-2 font-semibold">Désignation</th>
                       <th className="pb-2 font-semibold text-center">Qté</th>
+                      <th className="pb-2 font-semibold text-center">Jours</th>
                       <th className="pb-2 font-semibold text-right">Total</th>
                       <th className="pb-2"></th>
                     </tr>
@@ -341,6 +390,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
                       <tr key={item.id} className="border-b border-slate-100 last:border-0">
                         <td className="py-2 font-medium text-slate-800 truncate max-w-[80px]" title={item.designation}>{item.designation}</td>
                         <td className="py-2 text-center text-slate-600">{item.quantite}</td>
+                        <td className="py-2 text-center text-slate-600">{item.jours}</td>
                         <td className="py-2 text-right font-bold text-slate-800">{formatMonnaie(item.total)}</td>
                         <td className="py-2 text-right">
                           <button onClick={() => supprimerArticle(item.id)} className="text-red-400 hover:text-red-600">

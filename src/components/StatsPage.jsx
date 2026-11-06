@@ -60,8 +60,15 @@ export default function StatsPage() {
     const totalFactures = facturesFiltrees.length;
     const panierMoyen = totalFactures > 0 ? totalCA / totalFactures : 0;
     const tauxRecouvrement = totalCA > 0 ? 85 : 0; 
-    return { totalCA, totalFactures, panierMoyen, tauxRecouvrement };
-  }, [facturesFiltrees]);
+    
+    // NOUVEAU : Somme des jours d'activité pour les factures filtrées
+    const numerosFacturesFiltrees = facturesFiltrees.map(f => f.numero);
+    const totalJours = details
+      .filter(d => numerosFacturesFiltrees.includes(d.facture_numero))
+      .reduce((sum, d) => sum + (d.jours || 1), 0);
+
+    return { totalCA, totalFactures, panierMoyen, tauxRecouvrement, totalJours };
+  }, [facturesFiltrees, details]);
 
   // --- ÉVOLUTION MENSUELLE ---
   const evolutionMensuelle = useMemo(() => {
@@ -80,11 +87,8 @@ export default function StatsPage() {
     const numerosFacturesFiltrees = facturesFiltrees.map(f => f.numero);
     const detailsFiltres = details.filter(d => numerosFacturesFiltrees.includes(d.facture_numero));
     
-    // On regroupe par désignation (ou par catégorie si vous avez l'info)
     const categoriesMap = {};
     detailsFiltres.forEach(d => {
-      // On utilise la désignation comme proxy pour la catégorie (faute de mieux)
-      // L'idéal serait de joindre avec la table produits pour avoir la vraie catégorie
       const cat = d.designation.includes('publicitaire') ? 'Espaces publicitaires' :
                   d.designation.includes('Déjeuner') || d.designation.includes('Cocktail') || d.designation.includes('Pause') ? 'Restauration' :
                   d.designation.includes('Salle') || d.designation.includes('Auditorium') ? 'Salles de rencontre' : 'Chambres';
@@ -112,6 +116,23 @@ export default function StatsPage() {
     return Object.values(clientsMap).sort((a, b) => b.total - a.total).slice(0, 5);
   }, [facturesFiltrees]);
 
+  // --- OCCUPATION MENSUELLE (en jours) ---
+  const occupationMensuelle = useMemo(() => {
+    const moisJoursMap = {};
+    const numerosFacturesFiltrees = facturesFiltrees.map(f => f.numero);
+    
+    details.filter(d => numerosFacturesFiltrees.includes(d.facture_numero)).forEach(d => {
+      const facture = facturesFiltrees.find(f => f.numero === d.facture_numero);
+      if (facture && facture.date_creation) {
+        const date = new Date(facture.date_creation);
+        const key = date.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+        moisJoursMap[key] = (moisJoursMap[key] || 0) + (d.jours || 1);
+      }
+    });
+
+    return Object.keys(moisJoursMap).map(mois => ({ mois, jours: moisJoursMap[mois] }));
+  }, [facturesFiltrees, details]);
+
   if (isLoading) return <div className="p-8 text-center text-slate-500">Chargement des statistiques...</div>;
 
   return (
@@ -137,8 +158,8 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* Cartes KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Cartes KPI (5 cartes) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-rose-500">
           <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Chiffre d'Affaires</p>
           <p className="text-2xl font-extrabold text-slate-900 mt-2">{formatMonnaie(kpis.totalCA)}</p>
@@ -151,6 +172,14 @@ export default function StatsPage() {
           <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Panier moyen</p>
           <p className="text-2xl font-extrabold text-slate-900 mt-2">{formatMonnaie(kpis.panierMoyen)}</p>
         </div>
+        
+        {/* NOUVELLE CARTE : JOURS D'ACTIVITÉ */}
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-amber-500">
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Jours d'activité</p>
+          <p className="text-2xl font-extrabold text-slate-900 mt-2">{kpis.totalJours}</p>
+          <p className="text-xs font-bold text-slate-500 mt-1">Total facturé</p>
+        </div>
+
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-emerald-500">
           <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Taux de recouvrement</p>
           <p className="text-2xl font-extrabold text-slate-900 mt-2">{kpis.tauxRecouvrement}%</p>
@@ -163,7 +192,7 @@ export default function StatsPage() {
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Évolution du CA (Barres) - Prend 2 colonnes */}
+        {/* Évolution du CA (Barres) */}
         <div className="lg:col-span-2 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
           <h3 className="text-base font-extrabold text-slate-800 mb-4">Évolution du Chiffre d'Affaires</h3>
           <div className="h-72">
@@ -205,6 +234,22 @@ export default function StatsPage() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Graphique Occupation (Jours) */}
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="text-base font-extrabold text-slate-800 mb-4">Occupation (en jours)</h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={occupationMensuelle} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+              <XAxis dataKey="mois" tick={{ fill: '#64748b', fontSize: 13, fontWeight: 600 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={(value) => [value, 'Jours']} contentStyle={{ borderRadius: '8px', border: 'none', fontWeight: 'bold' }} />
+              <Bar dataKey="jours" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={40} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

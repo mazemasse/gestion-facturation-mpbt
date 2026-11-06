@@ -24,12 +24,12 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
   const { 
     numeroDoc, typeDoc, client, clientInfo, objet, 
     dateFormatee, heureFormatee, modePaiement,
+    dateDebut, dateFin, // NOUVELLES DONNÉES
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer 
   } = data;
 
   const formatMonnaie = (montant) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(montant) + ' F';
 
-  // --- FONCTION NOMBRE EN LETTRES (Gère correctement 70 à 99) ---
   const nombreEnLettres = (n) => {
     n = Math.floor(n);
     if (n === 0) return 'zéro';
@@ -50,7 +50,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
         } else if (reste < 20) {
           chaine += speciaux[reste - 10];
         } else {
-          // Gestion spécifique pour 70-79 et 90-99
           if (reste >= 70 && reste < 80) {
             if (reste === 71) chaine += 'soixante et onze';
             else {
@@ -91,7 +90,6 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
   };
 
   return (
-    // On fixe la hauteur à 297mm pour avoir une page A4 exacte
     <div ref={ref} className="bg-white text-black p-6 font-sans w-[210mm] h-[297mm] flex flex-col">
       
       {/* ================= EN-TÊTE ================= */}
@@ -155,10 +153,15 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
         </div>
       </div>
 
-      {/* Objet */}
-      {objet && (
+      {/* Objet & Période */}
+      {(objet || (dateDebut && dateFin)) && (
         <div className="mb-2 bg-blue-50 p-2 rounded border-l-4 border-blue-600">
-          <p className="text-xs font-bold text-gray-800"><span className="text-blue-700 uppercase">Objet :</span> {objet}</p>
+          {objet && <p className="text-xs font-bold text-gray-800"><span className="text-blue-700 uppercase">Objet :</span> {objet}</p>}
+          {dateDebut && dateFin && (
+            <p className="text-xs font-bold text-gray-800 mt-1">
+              <span className="text-blue-700 uppercase">Période :</span> Du {new Date(dateDebut).toLocaleDateString('fr-FR')} au {new Date(dateFin).toLocaleDateString('fr-FR')}
+            </p>
+          )}
         </div>
       )}
 
@@ -169,6 +172,7 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
             <th className="border border-blue-700 p-1.5 font-bold uppercase text-[10px]">Désignation</th>
             <th className="border border-blue-700 p-1.5 text-center font-bold uppercase text-[10px]">Unité</th>
             <th className="border border-blue-700 p-1.5 text-center font-bold uppercase text-[10px]">Qté</th>
+            <th className="border border-blue-700 p-1.5 text-center font-bold uppercase text-[10px]">Jours</th> {/* NOUVELLE COLONNE */}
             <th className="border border-blue-700 p-1.5 text-right font-bold uppercase text-[10px]">Prix Unit.</th>
             <th className="border border-blue-700 p-1.5 text-right font-bold uppercase text-[10px]">Montant Total</th>
           </tr>
@@ -179,6 +183,7 @@ const FacturePDF = forwardRef(({ data, user }, ref) => {
               <td className="border border-gray-300 p-1.5 text-[11px]">{item.designation}</td>
               <td className="border border-gray-300 p-1.5 text-center text-[11px]">{item.unite}</td>
               <td className="border border-gray-300 p-1.5 text-center font-bold text-[11px]">{item.quantite}</td>
+              <td className="border border-gray-300 p-1.5 text-center text-[11px]">{item.jours || 1}</td> {/* VALEUR JOURS */}
               <td className="border border-gray-300 p-1.5 text-right text-[11px]">{formatMonnaie(item.prixUnitaire)}</td>
               <td className="border border-gray-300 p-1.5 text-right font-bold text-[11px]">{formatMonnaie(item.total)}</td>
             </tr>
