@@ -14,7 +14,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
   const [documentAImprimer, setDocumentAImprimer] = useState(null);
   const pdfRef = useRef(null);
 
-  // Vérification stricte : Seul MASSE NDOYE peut supprimer une facture
   const estAdminSupreme = user?.nom === 'MASSE NDOYE';
 
   const chargerJournal = async () => {
@@ -51,9 +50,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
     chargerJournal();
   }, []);
 
-  // --- CHANGER LE STATUT DE PAIEMENT ---
   const basculerStatutPaiement = async (doc) => {
-    // Sécurité : On ne touche pas aux devis ou aux factures déjà payées
     if (doc.type === 'Devis') return;
     if (doc.statut_paiement === 'Payée') return; 
 
@@ -71,7 +68,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
-  // --- GÉNÉRATION ET OUVERTURE DU PDF ---
   const ouvrirDocument = async (doc) => {
     if (!pdfRef.current) return;
 
@@ -122,7 +118,8 @@ export default function JournalPage({ user, onPreparerFacture }) {
             quality: 0.95, 
             pixelRatio: 1.5, 
             backgroundColor: '#ffffff',
-            skipFonts: true 
+            skipFonts: true,
+            filter: (node) => node.tagName !== 'IMG' // AJOUT SÉCURITÉ
           });
 
           const pdf = new jsPDF('p', 'mm', 'a4');
@@ -194,7 +191,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
   };
 
   const supprimerDocument = async (doc) => {
-    // RÈGLE DE GESTION : Une facture ne peut être supprimée QUE par MASSE NDOYE
     if (doc.type === 'Facture' && !estAdminSupreme) {
       return alert("Action refusée : Seul l'Administrateur MASSE NDOYE peut supprimer une facture.");
     }
@@ -281,15 +277,12 @@ export default function JournalPage({ user, onPreparerFacture }) {
                   <td className="px-4 py-4 font-bold text-slate-900 text-base">{doc.client}</td>
                   <td className="px-4 py-4 text-right font-bold text-teal-700 text-base whitespace-nowrap">{formatMonnaie(doc.montant)}</td>
                   
-                  {/* GESTION DU STATUT */}
                   <td className="px-4 py-4 text-center whitespace-nowrap">
                     {doc.type === 'Devis' ? (
-                      // Si c'est un devis, on ne peut pas être "Payée"
                       <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-slate-100 text-slate-500">
                         À transformer
                       </span>
                     ) : doc.statut_paiement === 'Payée' ? (
-                      // Si c'est déjà payé, on verrouille
                       <span 
                         className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-800 flex items-center justify-center gap-1 mx-auto cursor-not-allowed opacity-80" 
                         title="Déjà payée. Le statut ne peut plus être modifié."
@@ -298,7 +291,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
                         Payée
                       </span>
                     ) : (
-                      // Si c'est en attente, on peut cliquer
                       <button 
                         onClick={() => basculerStatutPaiement(doc)}
                         className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-800 hover:bg-orange-200 transition flex items-center justify-center gap-1 mx-auto"
@@ -312,21 +304,17 @@ export default function JournalPage({ user, onPreparerFacture }) {
 
                   <td className="px-4 py-4 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
-                      {/* BOUTON VOIR PDF (toujours dispo) */}
                       <button onClick={() => ouvrirDocument(doc)} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Télécharger le PDF">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                       </button>
                       
-                      {/* BOUTON TRANSFORMATION (Uniquement pour les devis) */}
                       {doc.type === 'Devis' && (
                         <button onClick={() => preparerTransformation(doc)} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Préparer la transformation en Facture">
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                         </button>
                       )}
 
-                      {/* BOUTON SUPPRIMER */}
                       {(() => {
-                        // Si c'est un devis, n'importe qui peut supprimer (ou selon votre règle, ajustez ici)
                         if (doc.type === 'Devis') {
                           return (
                             <button onClick={() => supprimerDocument(doc)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer le devis">
@@ -334,7 +322,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
                             </button>
                           );
                         }
-                        // Si c'est une facture, uniquement MASSE NDOYE
                         if (doc.type === 'Facture' && estAdminSupreme) {
                           return (
                             <button onClick={() => supprimerDocument(doc)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer la facture (Admin uniquement)">

@@ -23,6 +23,9 @@ export default function ReservationsPage({ user }) {
   
   const pdfRef = useRef(null);
   const [reservationAImprimer, setReservationAImprimer] = useState(null);
+  
+  // NOUVEAU : État pour stocker le logo converti en Base64
+  const [logoBase64, setLogoBase64] = useState('');
 
   const initialFormState = {
     client_nom: '',
@@ -48,6 +51,19 @@ export default function ReservationsPage({ user }) {
         email: paramData.email, siteWeb: paramData.site_web, ninea: paramData.ninea, rc: paramData.rc,
         banque: paramData.banque, compteBancaire: paramData.compte_bancaire, logo: paramData.logo, slogan: paramData.slogan
       });
+      
+      // Conversion du logo en Base64 pour le PDF
+      if (paramData.logo) {
+        try {
+          const response = await fetch(paramData.logo);
+          const blob = await response.blob();
+          const reader = new FileReader();
+          reader.onloadend = () => setLogoBase64(reader.result);
+          reader.readAsDataURL(blob);
+        } catch (error) {
+          console.warn("Impossible de convertir le logo en Base64, il sera ignoré dans le PDF.");
+        }
+      }
     }
 
     const { data: resData } = await supabase.from('reservations').select('*').order('date_creation', { ascending: false });
@@ -85,7 +101,11 @@ export default function ReservationsPage({ user }) {
         if (!isMounted) return;
 
         const dataUrl = await toJpeg(pdfRef.current, { 
-          quality: 0.95, pixelRatio: 1.5, backgroundColor: '#ffffff', skipFonts: true 
+          quality: 0.95, 
+          pixelRatio: 1.5, 
+          backgroundColor: '#ffffff', 
+          skipFonts: true
+          // On retire le filtre pour que les images s'affichent
         });
 
         const pdf = new jsPDF('p', 'mm', 'a4');
@@ -600,11 +620,14 @@ export default function ReservationsPage({ user }) {
             <div className="flex justify-between items-start border-b-4 border-emerald-600 pb-3 mb-3">
               <div className="flex items-center gap-3">
                 <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center bg-slate-50">
-                  <img src={companyInfo.logo} alt="Logo" className="w-full h-full object-contain" 
-                       onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
-                  <div className="hidden w-full h-full bg-emerald-600 text-white items-center justify-center font-black text-2xl">
-                    {companyInfo.sigle}
-                  </div>
+                  {/* LE LOGO EST MAINTENANT EN BASE64, DONC IL S'AFFICHERA TOUJOURS */}
+                  {logoBase64 ? (
+                    <img src={logoBase64} alt="Logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="w-full h-full bg-emerald-600 text-white items-center justify-center font-black text-2xl flex">
+                      {companyInfo.sigle}
+                    </div>
+                  )}
                 </div>
                 
                 <div>
@@ -699,67 +722,78 @@ export default function ReservationsPage({ user }) {
 
             <div className="flex-1"></div>
 
-            {/* SOUCHE DE RÉSERVATION (STYLE FACTURE) */}
+            {/* SOUCHE STYLISÉE */}
             <div className="mb-2">
-              <div className="border-2 border-dashed border-gray-400 p-2 bg-gray-50">
+              <div className="border-[3px] border-dashed border-slate-400 rounded-lg p-3 bg-slate-50 relative overflow-hidden">
                 
-                <div className="flex justify-between items-center border-b border-gray-400 pb-1 mb-1">
-                  <h3 className="text-[10px] font-black uppercase text-gray-800 tracking-widest">Souche de Réservation</h3>
-                  <span className="font-mono font-bold text-[10px] bg-white px-1.5 py-0.5 border border-gray-300 rounded">{reservationAImprimer.numero_resa}</span>
+                <div className="absolute -right-4 -bottom-4 opacity-5 pointer-events-none">
+                  <svg className="w-32 h-32 text-emerald-900" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
                 </div>
 
-                <div className="flex justify-between items-baseline mb-1">
+                <div className="flex justify-between items-center border-b-2 border-slate-300 pb-2 mb-3 relative z-10">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-emerald-600 text-white p-1 rounded-md">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    </span>
+                    <div>
+                      <h3 className="text-xs font-black uppercase text-slate-800 tracking-widest">Souche de Réservation</h3>
+                      <p className="text-[8px] font-bold text-emerald-600 uppercase">À l'attention de la Logistique & Exploitation</p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-black text-xs bg-white text-emerald-700 px-2 py-1 border border-slate-300 rounded shadow-sm">{reservationAImprimer.numero_resa}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-3 relative z-10">
                   <div>
-                    <p className="font-bold uppercase text-gray-600 text-[8px]">Client</p>
-                    <p className="font-bold text-xs text-gray-900">{reservationAImprimer.client_nom}</p>
+                    <p className="text-[9px] font-bold uppercase text-slate-500 mb-0.5">Client</p>
+                    <p className="font-black text-sm text-slate-900 truncate">{reservationAImprimer.client_nom}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold uppercase text-gray-600 text-[8px]">Contact</p>
-                    <p className="text-xs">{clients.find(c => c.nom === reservationAImprimer.client_nom)?.contact || '-'}</p>
+                    <p className="text-[9px] font-bold uppercase text-slate-500 mb-0.5">Contact</p>
+                    <p className="text-xs font-medium text-slate-800">{clients.find(c => c.nom === reservationAImprimer.client_nom)?.contact || '-'}</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 text-[9px] border-t border-b border-gray-300 py-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Arrivée :</span>
-                    <span className="font-bold">{formatDate(reservationAImprimer.date_arrivee)}</span>
+                <div className="grid grid-cols-3 gap-2 bg-white p-2 rounded border border-slate-200 shadow-sm mb-3 relative z-10">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] uppercase font-bold text-slate-500">Arrivée</span>
+                    <span className="font-bold text-xs text-slate-900">{formatDate(reservationAImprimer.date_arrivee)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Départ :</span>
-                    <span className="font-bold">{formatDate(reservationAImprimer.date_depart)}</span>
+                  <div className="flex flex-col border-l border-slate-200 pl-2">
+                    <span className="text-[9px] uppercase font-bold text-slate-500">Départ</span>
+                    <span className="font-bold text-xs text-slate-900">{formatDate(reservationAImprimer.date_depart)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Nuits :</span>
-                    <span className="font-bold">{reservationAImprimer.nombre_jours}</span>
+                  <div className="flex flex-col border-l border-slate-200 pl-2">
+                    <span className="text-[9px] uppercase font-bold text-slate-500">Nuits</span>
+                    <span className="font-bold text-xs text-slate-900">{reservationAImprimer.nombre_jours}</span>
                   </div>
                 </div>
 
-                {/* TABLEAU DES ESPACES DANS LA SOUCHE */}
-                <div className="mt-2">
-                  <p className="font-bold uppercase text-gray-600 text-[8px] mb-1">Détail des espaces à préparer :</p>
-                  <table className="w-full text-xs border-collapse bg-white rounded overflow-hidden shadow-sm border border-gray-300">
+                <div className="relative z-10 mb-2">
+                  <p className="text-[9px] font-bold uppercase text-emerald-800 mb-1">Détail des espaces à préparer :</p>
+                  <table className="w-full text-xs border-collapse bg-white rounded overflow-hidden shadow-sm border border-slate-200">
                     <thead>
-                      <tr className="bg-gray-200 text-gray-800 border-b border-gray-300">
-                        <th className="p-1 text-left font-bold text-[9px]">Espace</th>
-                        <th className="p-1 text-center font-bold text-[9px] w-16">Qté</th>
-                        <th className="p-1 text-center font-bold text-[9px] w-20">Pers.</th>
+                      <tr className="bg-emerald-100 text-emerald-900 border-b border-emerald-200">
+                        <th className="p-1.5 text-left font-bold text-[10px]">Espace</th>
+                        <th className="p-1.5 text-center font-bold text-[10px] w-16">Qté</th>
+                        <th className="p-1.5 text-center font-bold text-[10px] w-20">Pers.</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
+                    <tbody className="divide-y divide-slate-100">
                       {reservationAImprimer.details?.map((d, i) => (
                         <tr key={i}>
-                          <td className="p-1 font-bold text-gray-800 text-[10px]">{d.espaceInfo?.nom || 'Inconnu'}</td>
-                          <td className="p-1 text-center font-black text-gray-900 text-[10px]">{d.quantite}</td>
-                          <td className="p-1 text-center font-bold text-gray-700 text-[10px]">{d.nombre_personnes}</td>
+                          <td className="p-1.5 font-bold text-slate-800 text-[11px]">{d.espaceInfo?.nom || 'Inconnu'}</td>
+                          <td className="p-1.5 text-center font-black text-emerald-700 text-[11px]">{d.quantite}</td>
+                          <td className="p-1.5 text-center font-bold text-slate-700 text-[11px]">{d.nombre_personnes}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="flex justify-between text-[8px] text-gray-500 mt-2">
-                  <p>Date : {new Date().toLocaleDateString('fr-FR')}</p>
-                  <p>Généré par : {user.nom}</p>
+                <div className="flex justify-between text-[8px] text-slate-400 font-medium mt-2 relative z-10">
+                  <p>Généré le : {new Date().toLocaleDateString('fr-FR')}</p>
+                  <p>Par : {user.nom}</p>
                 </div>
               </div>
             </div>

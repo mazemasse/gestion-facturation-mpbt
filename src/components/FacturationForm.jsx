@@ -31,8 +31,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const [clients, setClients] = useState([]);
   const [produits, setProduits] = useState([]);
-  
-  // On garde une trace de toutes les factures pour la numérotation
   const [toutesLesFactures, setToutesLesFactures] = useState([]);
 
   const componentRef = useRef(null);
@@ -41,7 +39,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const chargerDonnees = async () => {
     const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
     const { data: produitsData } = await supabase.from('produits').select('*').order('designation');
-    const { data: facturesData } = await supabase.from('factures').select('numero'); // Pour la numérotation
+    const { data: facturesData } = await supabase.from('factures').select('numero');
     
     setClients(clientsData || []);
     setProduits(produitsData || []);
@@ -90,7 +88,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     const annee = new Date().getFullYear();
     const prefixe = typeDoc === 'Facture' ? `F-${annee}-` : `D-${annee}-`;
     
-    // On filtre les numéros existants pour ce type et cette année
     const numerosExistants = toutesLesFactures
       .filter(f => f.numero?.startsWith(prefixe))
       .map(f => parseInt(f.numero.replace(prefixe, ''), 10))
@@ -112,7 +109,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const dateFormatee = dateCreation.toLocaleDateString('fr-FR');
   const heureFormatee = dateCreation.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // --- PANIER ---
   const ajouterAuPanier = () => {
     if (!produitSelectionne || quantite < 1) return;
     const produitInfo = produits.find(p => p.designation === produitSelectionne);
@@ -134,7 +130,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const supprimerArticle = (id) => setPanier(panier.filter(a => a.id !== id));
 
-  // --- CALCULS ---
   const sousTotalHT = panier.reduce((sum, a) => sum + a.total, 0);
   const tva = appliqueTVA ? sousTotalHT * 0.18 : 0;
   const totalTTCBrut = sousTotalHT + tva;
@@ -151,7 +146,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
-  // --- ANNULER LA TRANSFORMATION ---
   const annulerTransformation = () => {
     if (window.confirm("Voulez-vous annuler la transformation du devis ? Les données seront perdues.")) {
       setPanier([]);
@@ -163,13 +157,11 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
-  // --- FONCTION D'EXPORT PDF + SAUVEGARDE SUPABASE ---
   const genererPDF = async () => {
     if (!componentRef.current) return;
     setIsGenerating(true);
 
     try {
-      // 1. Sauvegarde dans Supabase (En-tête)
       const { error: errFacture } = await supabase
         .from('factures')
         .insert([{
@@ -190,7 +182,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
       if (errFacture) throw new Error("Erreur sauvegarde facture : " + errFacture.message);
 
-      // 2. Sauvegarde des détails
       const details = panier.map(item => ({
         facture_numero: numeroDoc,
         designation: item.designation,
@@ -204,12 +195,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const { error: errDetails } = await supabase.from('facture_details').insert(details);
       if (errDetails) throw new Error("Erreur sauvegarde détails : " + errDetails.message);
 
-      // 3. Génération du PDF
       const dataUrl = await toJpeg(componentRef.current, { 
         quality: 0.95, 
         pixelRatio: 1.5, 
         backgroundColor: '#ffffff',
-        skipFonts: true 
+        skipFonts: true,
+        filter: (node) => node.tagName !== 'IMG' // AJOUT SÉCURITÉ
       });
       
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -220,10 +211,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       
       const nomFichier = `${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`;
       
-      // 4. Téléchargement local
       pdf.save(nomFichier);
 
-      // 5. Ouverture sécurisée dans un nouvel onglet
       const pdfBlob = pdf.output('blob');
       const url = URL.createObjectURL(pdfBlob);
       
@@ -238,20 +227,17 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         setTimeout(() => URL.revokeObjectURL(url), 20000);
       }, 1000);
 
-      // 6. Notification
       setNotification({
         type: 'success',
         message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e) avec succès.`
       });
       setTimeout(() => setNotification(null), 5000);
 
-      // 7. Si transformation, supprimer le devis
       if (isTransformation && numeroOrigine) {
         await supabase.from('facture_details').delete().eq('facture_numero', numeroOrigine);
         await supabase.from('factures').delete().eq('numero', numeroOrigine);
       }
       
-      // Réinitialisation
       setPanier([]);
       setClientSelectionne('');
       setObjet('');
@@ -261,7 +247,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setIsTransformation(false);
       setNumeroOrigine(null);
       
-      // Rafraîchir les données pour la numérotation
       chargerDonnees();
 
     } catch (error) {
@@ -272,7 +257,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
-  // --- PARTAGE WHATSAPP ---
   const partagerWhatsApp = () => {
     if (!clientInfo?.tel) {
       alert("Le numéro de téléphone du client n'est pas renseigné.");
@@ -313,7 +297,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         </div>
       )}
 
-      {/* COLONNE GAUCHE : SAISIE */}
       <div className="lg:col-span-2 space-y-6">
         
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -421,7 +404,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         </div>
       </div>
 
-      {/* COLONNE DROITE : PANIER */}
       <div className="lg:col-span-1">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-24">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Panier</h3>
