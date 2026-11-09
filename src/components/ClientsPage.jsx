@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { countries } from 'countries-list';
 import { supabase } from '../lib/supabaseClient';
 
-export default function ClientsPage() {
+export default function ClientsPage({ onClientAdded }) {
   // --- ÉTATS ---
   const [clients, setClients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,25 +58,21 @@ export default function ClientsPage() {
 
   // --- FONCTION DE FORMATAGE DU TÉLÉPHONE ---
   const handleTelChange = (e) => {
-    let valeur = e.target.value.replace(/\D/g, ''); // On ne garde que les chiffres
+    let valeur = e.target.value.replace(/\D/g, '');
     let valeurFormatee = '';
 
-    // On applique un masque différent selon l'indicatif
     if (indicatifActuel === '+221') {
-      // Format Sénégal : 77 123 45 67 (9 chiffres)
       if (valeur.length > 0) valeurFormatee = valeur.substring(0, 2);
       if (valeur.length > 2) valeurFormatee += ' ' + valeur.substring(2, 5);
       if (valeur.length > 5) valeurFormatee += ' ' + valeur.substring(5, 7);
       if (valeur.length > 7) valeurFormatee += ' ' + valeur.substring(7, 9);
     } else if (indicatifActuel === '+33') {
-      // Format France : 6 12 34 56 78
       if (valeur.length > 0) valeurFormatee = valeur.substring(0, 1);
       if (valeur.length > 1) valeurFormatee += ' ' + valeur.substring(1, 3);
       if (valeur.length > 3) valeurFormatee += ' ' + valeur.substring(3, 5);
       if (valeur.length > 5) valeurFormatee += ' ' + valeur.substring(5, 7);
       if (valeur.length > 7) valeurFormatee += ' ' + valeur.substring(7, 9);
     } else {
-      // Format par défaut : on groupe par 2 ou 3
       valeurFormatee = valeur.replace(/(\d{2})(?=\d)/g, '$1 ');
     }
 
@@ -87,7 +83,6 @@ export default function ClientsPage() {
   const handleAjouter = async (e) => {
     e.preventDefault();
     
-    // On reconstruit le numéro complet
     const telComplet = `${indicatifActuel} ${numeroLocal}`;
 
     const clientFinal = { 
@@ -121,6 +116,10 @@ export default function ClientsPage() {
       if (error) alert("Erreur : " + error.message);
       else {
         alert(`Client ajouté avec l'ID ${nouvelId}.`);
+        
+        // NOTIFICATION AU PARENT
+        if (onClientAdded) onClientAdded();
+
         setNouveauClient({ type: 'Etablissement', nom: '', contact: '', tel: '', email: '', adresse: '', ville: '', pays: 'Senegal' });
         setNumeroLocal('');
         setShowForm(false);

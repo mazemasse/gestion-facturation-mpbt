@@ -1,20 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
-import { getNextNumero } from '../data/mockData';
 import { COMPANY_DATA } from '../data/companyData';
 import { supabase } from '../lib/supabaseClient';
 import FacturePDF from './FacturePDF';
+import ClientsPage from './ClientsPage';
 
 export default function FacturationForm({ user, typeParDefaut = 'Facture', donneesInitiales, onResetInitiales }) {
-  // --- ÉTATS ---
   const [typeDoc, setTypeDoc] = useState(typeParDefaut);
   const [numeroDoc, setNumeroDoc] = useState('');
   const [clientSelectionne, setClientSelectionne] = useState('');
   const [objet, setObjet] = useState('');
   const [modePaiement, setModePaiement] = useState('Virement');
   
-  // NOUVEAUX ÉTATS POUR LA PÉRIODE
   const [dateDebut, setDateDebut] = useState('');
   const [dateFin, setDateFin] = useState('');
   const [nombreJours, setNombreJours] = useState(1);
@@ -29,21 +27,28 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const [numeroOrigine, setNumeroOrigine] = useState(null);
   
   const [notification, setNotification] = useState(null);
+  const [showModalClient, setShowModalClient] = useState(false);
 
-  // --- DONNÉES SUPABASE ---
   const [clients, setClients] = useState([]);
   const [produits, setProduits] = useState([]);
+  
+  // On garde une trace de toutes les factures pour la numérotation
+  const [toutesLesFactures, setToutesLesFactures] = useState([]);
 
   const componentRef = useRef(null);
 
   // --- CHARGEMENT INITIAL ---
+  const chargerDonnees = async () => {
+    const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
+    const { data: produitsData } = await supabase.from('produits').select('*').order('designation');
+    const { data: facturesData } = await supabase.from('factures').select('numero'); // Pour la numérotation
+    
+    setClients(clientsData || []);
+    setProduits(produitsData || []);
+    setToutesLesFactures(facturesData || []);
+  };
+
   useEffect(() => {
-    const chargerDonnees = async () => {
-      const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
-      const { data: produitsData } = await supabase.from('produits').select('*').order('designation');
-      setClients(clientsData || []);
-      setProduits(produitsData || []);
-    };
     chargerDonnees();
   }, []);
 
@@ -54,7 +59,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const fin = new Date(dateFin);
       if (fin >= debut) {
         const diffTime = Math.abs(fin - debut);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 pour inclure le jour de début
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
         setNombreJours(diffDays);
       } else {
         setNombreJours(1);
@@ -75,14 +80,33 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   }, [donneesInitiales, onResetInitiales]);
 
-  // --- NUMÉROTATION (CORRIGÉE POUR L'ASYNCHRONE) ---
+  // --- NUMÉROTATION SÉQUENTIELLE SÉCURISÉE ---
   useEffect(() => {
-    const chargerNumero = async () => {
-      const num = await getNextNumero(typeDoc);
-      setNumeroDoc(num);
-    };
-    chargerNumero();
-  }, [typeDoc]);
+    if (toutesLesFactures.length === 0 && !numeroDoc) {
+      setNumeroDoc(typeDoc === 'Facture' ? 'F-2026-001' : 'D-2026-001');
+      return;
+    }
+
+    const annee = new Date().getFullYear();
+    const prefixe = typeDoc === 'Facture' ? `F-${annee}-` : `D-${annee}-`;
+    
+    // On filtre les numéros existants pour ce type et cette année
+    const numerosExistants = toutesLesFactures
+      .filter(f => f.numero?.startsWith(prefixe))
+      .map(f => parseInt(f.numero.replace(prefixe, ''), 10))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => a - b);
+
+    let prochainNumero = 1;
+    if (numerosExistants.length > 0) {
+      for (let i = 0; i < numerosExistants.length; i++) {
+        if (numerosExistants[i] !== prochainNumero) break;
+        prochainNumero++;
+      }
+    }
+    
+    setNumeroDoc(`${prefixe}${String(prochainNumero).padStart(3, '0')}`);
+  }, [typeDoc, toutesLesFactures]);
 
   const dateCreation = new Date();
   const dateFormatee = dateCreation.toLocaleDateString('fr-FR');
@@ -93,7 +117,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     if (!produitSelectionne || quantite < 1) return;
     const produitInfo = produits.find(p => p.designation === produitSelectionne);
     
-    // Calcul du total en intégrant le nombre de jours
     const total = produitInfo.prix_unitaire * parseInt(quantite) * parseInt(nombreJours);
 
     setPanier([...panier, {
@@ -101,7 +124,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       designation: produitInfo.designation,
       unite: produitInfo.unite,
       quantite: parseInt(quantite),
-      jours: parseInt(nombreJours), // On stocke le nombre de jours
+      jours: parseInt(nombreJours),
       prixUnitaire: produitInfo.prix_unitaire,
       total: total
     }]);
@@ -124,12 +147,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const pdfData = {
     numeroDoc, typeDoc, client: clientSelectionne, clientInfo, objet,
     dateFormatee, heureFormatee, modePaiement,
-    dateDebut, dateFin, nombreJours, // On transmet les dates au PDF
+    dateDebut, dateFin, nombreJours,
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
   // --- ANNULER LA TRANSFORMATION ---
-  const annulerTransformation = async () => {
+  const annulerTransformation = () => {
     if (window.confirm("Voulez-vous annuler la transformation du devis ? Les données seront perdues.")) {
       setPanier([]);
       setClientSelectionne('');
@@ -137,9 +160,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setIsTransformation(false);
       setNumeroOrigine(null);
       setTypeDoc('Facture');
-      
-      const num = await getNextNumero('Facture');
-      setNumeroDoc(num);
     }
   };
 
@@ -158,8 +178,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
           client_nom: clientSelectionne,
           objet: objet,
           mode_paiement: modePaiement,
-          date_debut: dateDebut || null, // Ajout des dates
-          date_fin: dateFin || null,     // Ajout des dates
+          date_debut: dateDebut || null,
+          date_fin: dateFin || null,
           sous_total_ht: sousTotalHT,
           tva: tva,
           remise: remiseTTC,
@@ -176,7 +196,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         designation: item.designation,
         unite: item.unite,
         quantite: item.quantite,
-        jours: item.jours, // Ajout du nombre de jours
+        jours: item.jours,
         prix_unitaire: item.prixUnitaire,
         total: item.total
       }));
@@ -188,7 +208,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const dataUrl = await toJpeg(componentRef.current, { 
         quality: 0.95, 
         pixelRatio: 1.5, 
-        backgroundColor: '#ffffff' 
+        backgroundColor: '#ffffff',
+        skipFonts: true 
       });
       
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -198,22 +219,33 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       
       const nomFichier = `${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`;
+      
+      // 4. Téléchargement local
       pdf.save(nomFichier);
 
-      // 4. Ouvrir automatiquement le PDF
+      // 5. Ouverture sécurisée dans un nouvel onglet
       const pdfBlob = pdf.output('blob');
       const url = URL.createObjectURL(pdfBlob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      
+      setTimeout(() => {
+        const lien = document.createElement('a');
+        lien.href = url;
+        lien.target = '_blank';
+        lien.rel = 'noopener noreferrer';
+        document.body.appendChild(lien);
+        lien.click();
+        document.body.removeChild(lien);
+        setTimeout(() => URL.revokeObjectURL(url), 20000);
+      }, 1000);
 
-      // 5. Notification
+      // 6. Notification
       setNotification({
         type: 'success',
         message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e) avec succès.`
       });
       setTimeout(() => setNotification(null), 5000);
 
-      // 6. Si transformation, supprimer le devis
+      // 7. Si transformation, supprimer le devis
       if (isTransformation && numeroOrigine) {
         await supabase.from('facture_details').delete().eq('facture_numero', numeroOrigine);
         await supabase.from('factures').delete().eq('numero', numeroOrigine);
@@ -229,8 +261,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setIsTransformation(false);
       setNumeroOrigine(null);
       
-      const nouveauNum = await getNextNumero(typeDoc);
-      setNumeroDoc(nouveauNum);
+      // Rafraîchir les données pour la numérotation
+      chargerDonnees();
 
     } catch (error) {
       console.error(error);
@@ -254,16 +286,30 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
       
-      {/* --- NOTIFICATION --- */}
       {notification && (
-        <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in
-          ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
           {notification.type === 'success' ? (
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
           ) : (
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           )}
           {notification.message}
+        </div>
+      )}
+
+      {showModalClient && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">Gestion des Clients</h3>
+              <button onClick={() => { setShowModalClient(false); chargerDonnees(); }} className="text-white hover:bg-white/20 p-2 rounded-lg transition">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <ClientsPage onClientAdded={() => { setShowModalClient(false); chargerDonnees(); }} />
+            </div>
+          </div>
         </div>
       )}
 
@@ -302,15 +348,25 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
               </div>
             </div>
             
-            <div>
+            <div className="md:col-span-1">
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Client</label>
-              <select value={clientSelectionne} onChange={(e) => setClientSelectionne(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                <option value="">-- Sélectionner --</option>
-                {clients.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
-              </select>
+              <div className="flex gap-1">
+                <select value={clientSelectionne} onChange={(e) => setClientSelectionne(e.target.value)} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                  <option value="">-- Sélectionner --</option>
+                  {clients.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
+                </select>
+                <button 
+                  type="button"
+                  onClick={() => setShowModalClient(true)}
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition"
+                  title="Nouveau client"
+                >
+                  +
+                </button>
+              </div>
             </div>
 
-            <div>
+            <div className="md:col-span-1">
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Mode de paiement</label>
               <select value={modePaiement} onChange={(e) => setModePaiement(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
                 <option value="Virement">Virement Bancaire</option>
@@ -325,7 +381,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
               <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex: Soirée de gala..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
 
-            {/* NOUVELLE SECTION PÉRIODE */}
             <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Date de début</label>
