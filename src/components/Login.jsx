@@ -4,10 +4,10 @@ import { supabase } from '../lib/supabaseClient';
 // Fonction utilitaire pour récupérer la bonne image
 const getPhotoProfil = (nom) => {
   const nomNettoye = nom ? nom.toUpperCase() : '';
-  if (nomNettoye.includes('MASSE')) return '/masse.png';
-  if (nomNettoye.includes('WILANE')) return '/wilane.png';
-  if (nomNettoye.includes('MALADO')) return '/malado.png';
-  if (nomNettoye.includes('MAIMOUNA')) return '/danfakha.png';
+  if (nomNettoye.includes('MASSE')) return 'masse.png';
+  if (nomNettoye.includes('WILANE')) return 'wilane.png';
+  if (nomNettoye.includes('MALADO')) return 'malado.png';
+  if (nomNettoye.includes('MAIMOUNA')) return 'danfakha.png';
   return null;
 };
 
@@ -18,7 +18,9 @@ export default function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [logoUrl, setLogoUrl] = useState('/logo.png');
+  
+  // Logo par défaut local (sans slash pour Electron)
+  const [logoUrl, setLogoUrl] = useState('logo.png');
 
   // États pour la modale Administrateur
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -30,15 +32,17 @@ export default function Login({ onLoginSuccess }) {
   // --- CHARGEMENT DU LOGO ET DES PROFILS ---
   useEffect(() => {
     const initialiser = async () => {
-      // 1. Charger le logo
+      // 1. Charger le logo depuis Supabase
       const { data: paramData } = await supabase.from('parametres').select('logo').eq('id', 1).single();
-      if (paramData && paramData.logo) setLogoUrl(paramData.logo);
+      if (paramData && paramData.logo) {
+        setLogoUrl(paramData.logo);
+      }
 
       // 2. Charger uniquement les utilisateurs NON administrateurs
       const { data, error } = await supabase
         .from('utilisateurs')
         .select('*')
-        .neq('role', 'Administrateur') // On exclut l'admin de la liste principale
+        .neq('role', 'Administrateur')
         .order('nom');
         
       if (error) console.error("Erreur chargement profils:", error);
@@ -89,7 +93,6 @@ export default function Login({ onLoginSuccess }) {
     setAdminLoading(true);
 
     try {
-      // 1. Authentification
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: adminEmail,
         password: adminPassword,
@@ -97,7 +100,6 @@ export default function Login({ onLoginSuccess }) {
 
       if (authError) throw authError;
 
-      // 2. Vérification du rôle
       const { data: userData, error: userError } = await supabase
         .from('utilisateurs')
         .select('*')
@@ -107,7 +109,6 @@ export default function Login({ onLoginSuccess }) {
       if (userError || !userData) throw new Error("Profil introuvable.");
       if (userData.role !== 'Administrateur') throw new Error("Accès refusé. Vous n'êtes pas administrateur.");
 
-      // 3. Succès
       onLoginSuccess({
         id: userData.id,
         nom: userData.nom,
@@ -129,7 +130,19 @@ export default function Login({ onLoginSuccess }) {
         
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center mb-3">
-            <img src={logoUrl} alt="Logo" className="h-24 w-auto object-contain" onError={(e) => { e.target.src = '/logo.png'; }} />
+            {/* Le logo utilise une URL Supabase ou un chemin local avec un onError de secours */}
+            <img 
+              src={logoUrl} 
+              alt="Logo" 
+              className="h-24 w-auto object-contain" 
+              onError={(e) => { 
+                if (e.target.src !== 'logo.png') {
+                  e.target.src = 'logo.png'; 
+                } else {
+                  e.target.style.display = 'none';
+                }
+              }} 
+            />
           </div>
           <h1 className="text-xl font-bold text-slate-800 tracking-wide">Gestion Commerciale</h1>
           <p className="text-emerald-600 text-sm font-medium mt-0.5">Maison de la Presse Babacar Touré</p>
@@ -163,14 +176,24 @@ export default function Login({ onLoginSuccess }) {
                 >
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden border border-slate-200">
                     {photo ? (
-                      <img src={photo} alt={user.nom} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className={`w-full h-full flex items-center justify-center text-white ${
+                      <img 
+                        src={photo} 
+                        alt={user.nom} 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => { 
+                          e.target.style.display = 'none'; 
+                          e.target.nextSibling.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    
+                    <div 
+                      className={`w-full h-full flex items-center justify-center text-white ${
                         user.role === 'Directeur Commercial' ? 'bg-indigo-500' : 'bg-emerald-500'
-                      }`}>
-                        <span className="font-bold text-lg">{user.nom.charAt(0)}</span>
-                      </div>
-                    )}
+                      } ${photo ? 'hidden' : 'flex'}`}
+                    >
+                      <span className="font-bold text-lg">{user.nom.charAt(0)}</span>
+                    </div>
                   </div>
                   
                   <div className="flex-1 min-w-0">

@@ -16,6 +16,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
 
   const estAdminSupreme = user?.nom === 'MASSE NDOYE';
 
+  // --- CHARGEMENT DU JOURNAL ---
   const chargerJournal = async () => {
     setIsLoading(true);
     const { data, error } = await supabase
@@ -39,7 +40,9 @@ export default function JournalPage({ user, onPreparerFacture }) {
         remise: d.remise,
         total_ttc: d.total_ttc,
         net_a_payer: d.net_a_payer,
-        statut_paiement: d.statut_paiement || 'En attente'
+        statut_paiement: d.statut_paiement || 'En attente',
+        date_debut: d.date_debut,
+        date_fin: d.date_fin
       }));
       setJournal(formattedData);
     }
@@ -50,6 +53,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
     chargerJournal();
   }, []);
 
+  // --- CHANGER LE STATUT DE PAIEMENT ---
   const basculerStatutPaiement = async (doc) => {
     if (doc.type === 'Devis') return;
     if (doc.statut_paiement === 'Payée') return; 
@@ -60,7 +64,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
       .eq('id', doc.id);
 
     if (error) {
-      alert("Erreur lors du changement de statut : " + error.message);
+      alert("Erreur : " + error.message);
     } else {
       setJournal(journal.map(item => 
         item.id === doc.id ? { ...item, statut_paiement: 'Payée' } : item
@@ -68,21 +72,25 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
+  // --- GÉNÉRATION PDF SÉCURISÉE ---
   const ouvrirDocument = async (doc) => {
-    if (!pdfRef.current) return;
-
     try {
-      const { data: details } = await supabase
+      // 1. Récupérer les détails
+      const { data: details, error: errDetails } = await supabase
         .from('facture_details')
         .select('*')
         .eq('facture_numero', doc.numero);
 
+      if (errDetails) throw errDetails;
+
+      // 2. Récupérer le client
       const { data: clientData } = await supabase
         .from('clients')
         .select('*')
         .eq('nom', doc.client)
         .single();
 
+      // 3. Préparer les données
       const pdfData = {
         numeroDoc: doc.numero,
         typeDoc: doc.type,
@@ -92,6 +100,8 @@ export default function JournalPage({ user, onPreparerFacture }) {
         dateFormatee: new Date(doc.date).toLocaleDateString('fr-FR'),
         heureFormatee: new Date(doc.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         modePaiement: doc.mode_paiement,
+        dateDebut: doc.date_debut,
+        dateFin: doc.date_fin,
         panier: details.map(d => ({
           designation: d.designation,
           unite: d.unite,
@@ -110,6 +120,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
 
       setDocumentAImprimer({ data: pdfData, user: user });
       
+      // 4. Attendre le rendu du DOM, puis générer
       setTimeout(async () => {
         try {
           if (!pdfRef.current) throw new Error("Composant PDF introuvable");
@@ -119,7 +130,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
             pixelRatio: 1.5, 
             backgroundColor: '#ffffff',
             skipFonts: true,
-            filter: (node) => node.tagName !== 'IMG' // AJOUT SÉCURITÉ
+            filter: (node) => node.tagName !== 'IMG' 
           });
 
           const pdf = new jsPDF('p', 'mm', 'a4');
@@ -129,8 +140,11 @@ export default function JournalPage({ user, onPreparerFacture }) {
           pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           
           const nomFichier = `${doc.numero}_${doc.client.replace(/\s+/g, '_')}.pdf`;
+          
+          // Téléchargement local
           pdf.save(nomFichier);
 
+          // Ouverture dans un nouvel onglet
           const pdfBlob = pdf.output('blob');
           const url = URL.createObjectURL(pdfBlob);
           
@@ -158,6 +172,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
+  // --- TRANSFORMER UN DEVIS EN FACTURE ---
   const preparerTransformation = async (devis) => {
     if (window.confirm(`Transformer le Devis ${devis.numero} en Facture ?\n\nVous serez redirigé vers le formulaire de facturation pré-rempli.`)) {
       try {
@@ -190,6 +205,7 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
+  // --- SUPPRIMER UN DOCUMENT ---
   const supprimerDocument = async (doc) => {
     if (doc.type === 'Facture' && !estAdminSupreme) {
       return alert("Action refusée : Seul l'Administrateur MASSE NDOYE peut supprimer une facture.");
@@ -203,11 +219,45 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
+  // --- PRÉPARER LA MODIFICATION (DOUBLE CLIC) ---
+  const preparerModification = async (doc) => {
+    if (doc.type === 'Facture' && doc.statut_paiement === 'Payée') {
+      return alert("Cette facture est déjà payée et ne peut plus être modifiée.");
+    }
+
+    if (onPreparerFacture) {
+      try {
+        const { data: details } = await supabase.from('facture_details').select('*').eq('facture_numero', doc.numero);
+        
+        onPreparerFacture({
+          id: doc.id,
+          numero: doc.numero,
+          client: doc.client,
+          objet: doc.objet,
+          typeDoc: doc.type,
+          dateDebut: doc.date_debut,
+          dateFin: doc.date_fin,
+          panier: details.map(d => ({
+            id: Date.now() + Math.random(),
+            designation: d.designation,
+            unite: d.unite,
+            quantite: d.quantite,
+            jours: d.jours,
+            prixUnitaire: d.prix_unitaire,
+            total: d.total
+          }))
+        });
+      } catch (err) {
+        alert("Erreur : " + err.message);
+      }
+    }
+  };
+
+  // --- FILTRES ---
   const documentsFiltres = useMemo(() => {
     return journal.filter(doc => {
       const matchRecherche = doc.numero.toLowerCase().includes(recherche.toLowerCase()) || 
                              doc.client.toLowerCase().includes(recherche.toLowerCase());
-      
       const matchType = filtreType === 'Tous' || doc.type === filtreType;
 
       let matchDate = true;
@@ -220,7 +270,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
           matchDate = dateDoc.getFullYear() === maintenant.getFullYear();
         }
       }
-
       return matchRecherche && matchType && matchDate;
     });
   }, [journal, recherche, filtreType, filtreDate]);
@@ -231,10 +280,9 @@ export default function JournalPage({ user, onPreparerFacture }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 gap-4">
-        
         <div className="flex gap-3 items-center flex-wrap">
           <div className="relative w-64">
-            <input type="text" placeholder="Rechercher..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            <input type="text" placeholder="Rechercher..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm" />
             <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
           
@@ -268,33 +316,33 @@ export default function JournalPage({ user, onPreparerFacture }) {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
-                <tr><td colSpan="7" className="p-8 text-center text-slate-500 text-base">Chargement du journal...</td></tr>
+                <tr><td colSpan="7" className="p-8 text-center text-slate-500">Chargement...</td></tr>
               ) : documentsFiltres.map(doc => (
-                <tr key={doc.id} className="hover:bg-teal-50 transition-colors">
+                <tr 
+                  key={doc.id} 
+                  className="hover:bg-teal-50 transition-colors cursor-pointer"
+                  onDoubleClick={() => preparerModification(doc)}
+                  title="Double-cliquez pour modifier"
+                >
                   <td className="px-4 py-4 text-base text-slate-700 font-medium whitespace-nowrap"><span className="bg-slate-100 px-2 py-1 rounded-md font-semibold">{doc.numero}</span></td>
                   <td className="px-4 py-4 whitespace-nowrap"><span className={`px-3 py-1 rounded-md text-xs font-extrabold uppercase ${doc.type === 'Facture' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{doc.type}</span></td>
-                  <td className="px-4 py-4 text-slate-700 text-base font-medium whitespace-nowrap">{formatDate(doc.date)}</td>
-                  <td className="px-4 py-4 font-bold text-slate-900 text-base">{doc.client}</td>
-                  <td className="px-4 py-4 text-right font-bold text-teal-700 text-base whitespace-nowrap">{formatMonnaie(doc.montant)}</td>
+                  <td className="px-4 py-4 text-slate-700 text-sm font-medium whitespace-nowrap">{formatDate(doc.date)}</td>
+                  <td className="px-4 py-4 font-bold text-slate-900 text-sm">{doc.client}</td>
+                  <td className="px-4 py-4 text-right font-bold text-teal-700 text-sm whitespace-nowrap">{formatMonnaie(doc.montant)}</td>
                   
+                  {/* STATUT INTERACTIF */}
                   <td className="px-4 py-4 text-center whitespace-nowrap">
                     {doc.type === 'Devis' ? (
-                      <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-slate-100 text-slate-500">
-                        À transformer
-                      </span>
+                      <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-slate-100 text-slate-500">À transformer</span>
                     ) : doc.statut_paiement === 'Payée' ? (
-                      <span 
-                        className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-800 flex items-center justify-center gap-1 mx-auto cursor-not-allowed opacity-80" 
-                        title="Déjà payée. Le statut ne peut plus être modifié."
-                      >
+                      <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-800 flex items-center justify-center gap-1 mx-auto cursor-not-allowed">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                         Payée
                       </span>
                     ) : (
                       <button 
-                        onClick={() => basculerStatutPaiement(doc)}
+                        onClick={(e) => { e.stopPropagation(); basculerStatutPaiement(doc); }}
                         className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-orange-100 text-orange-800 hover:bg-orange-200 transition flex items-center justify-center gap-1 mx-auto"
-                        title="Marquer comme Payée"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         En attente
@@ -304,12 +352,13 @@ export default function JournalPage({ user, onPreparerFacture }) {
 
                   <td className="px-4 py-4 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => ouvrirDocument(doc)} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Télécharger le PDF">
+                      {/* BOUTON PDF CORRIGÉ */}
+                      <button onClick={(e) => { e.stopPropagation(); ouvrirDocument(doc); }} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Télécharger le PDF">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                       </button>
                       
                       {doc.type === 'Devis' && (
-                        <button onClick={() => preparerTransformation(doc)} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Préparer la transformation en Facture">
+                        <button onClick={(e) => { e.stopPropagation(); preparerTransformation(doc); }} className="text-indigo-600 hover:text-indigo-800 p-2 rounded-lg hover:bg-indigo-100 transition" title="Transformer en Facture">
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                         </button>
                       )}
@@ -317,14 +366,14 @@ export default function JournalPage({ user, onPreparerFacture }) {
                       {(() => {
                         if (doc.type === 'Devis') {
                           return (
-                            <button onClick={() => supprimerDocument(doc)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer le devis">
+                            <button onClick={(e) => { e.stopPropagation(); supprimerDocument(doc); }} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer">
                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           );
                         }
                         if (doc.type === 'Facture' && estAdminSupreme) {
                           return (
-                            <button onClick={() => supprimerDocument(doc)} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer la facture (Admin uniquement)">
+                            <button onClick={(e) => { e.stopPropagation(); supprimerDocument(doc); }} className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-100 transition" title="Supprimer (Admin)">
                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           );
@@ -338,10 +387,9 @@ export default function JournalPage({ user, onPreparerFacture }) {
             </tbody>
           </table>
         </div>
-        {!isLoading && documentsFiltres.length === 0 && (<p className="p-8 text-center text-slate-500 text-base">Aucun document trouvé.</p>)}
       </div>
 
-      {/* COMPOSANT CACHÉ POUR L'IMPRESSION */}
+      {/* ZONE CACHÉE PDF */}
       {documentAImprimer && (
         <div style={{ position: 'fixed', top: 0, left: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
           <FacturePDF ref={pdfRef} data={documentAImprimer.data} user={documentAImprimer.user} />

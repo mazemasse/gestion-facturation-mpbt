@@ -15,10 +15,13 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   
   const [dateDebut, setDateDebut] = useState('');
   const [dateFin, setDateFin] = useState('');
-  const [nombreJours, setNombreJours] = useState(1);
+  const [nombreJoursGlobal, setNombreJoursGlobal] = useState(1);
 
+  // NOUVEAUX ÉTATS POUR LE FILTRE PRODUIT
+  const [categorieFiltre, setCategorieFiltre] = useState('');
   const [produitSelectionne, setProduitSelectionne] = useState('');
-  const [quantite, setQuantite] = useState(1);
+  const [quantiteAjout, setQuantiteAjout] = useState(1);
+  
   const [panier, setPanier] = useState([]);
   const [appliqueTVA, setAppliqueTVA] = useState(true);
   const [remiseTTC, setRemiseTTC] = useState(0);
@@ -31,6 +34,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const [clients, setClients] = useState([]);
   const [produits, setProduits] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [toutesLesFactures, setToutesLesFactures] = useState([]);
 
   const componentRef = useRef(null);
@@ -40,10 +44,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
     const { data: produitsData } = await supabase.from('produits').select('*').order('designation');
     const { data: facturesData } = await supabase.from('factures').select('numero');
+    const { data: categoriesData } = await supabase.from('categories_espaces').select('*').order('nom'); // On réutilise la table des catégories
     
     setClients(clientsData || []);
     setProduits(produitsData || []);
     setToutesLesFactures(facturesData || []);
+    setCategories(categoriesData || []);
   };
 
   useEffect(() => {
@@ -58,9 +64,9 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       if (fin >= debut) {
         const diffTime = Math.abs(fin - debut);
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        setNombreJours(diffDays);
+        setNombreJoursGlobal(diffDays);
       } else {
-        setNombreJours(1);
+        setNombreJoursGlobal(1);
       }
     }
   }, [dateDebut, dateFin]);
@@ -109,27 +115,43 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const dateFormatee = dateCreation.toLocaleDateString('fr-FR');
   const heureFormatee = dateCreation.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+  // --- AJOUTER AU PANIER ---
   const ajouterAuPanier = () => {
-    if (!produitSelectionne || quantite < 1) return;
+    if (!produitSelectionne || quantiteAjout < 1) return;
     const produitInfo = produits.find(p => p.designation === produitSelectionne);
     
-    const total = produitInfo.prix_unitaire * parseInt(quantite) * parseInt(nombreJours);
+    const total = produitInfo.prix_unitaire * parseInt(quantiteAjout) * parseInt(nombreJoursGlobal);
 
     setPanier([...panier, {
       id: Date.now(),
       designation: produitInfo.designation,
       unite: produitInfo.unite,
-      quantite: parseInt(quantite),
-      jours: parseInt(nombreJours),
+      quantite: parseInt(quantiteAjout),
+      jours: parseInt(nombreJoursGlobal),
       prixUnitaire: produitInfo.prix_unitaire,
       total: total
     }]);
     setProduitSelectionne('');
-    setQuantite(1);
+    setQuantiteAjout(1);
+  };
+
+  // --- MODIFIER UN ARTICLE DANS LE PANIER ---
+  const modifierArticle = (id, champ, valeur) => {
+    setPanier(panier.map(item => {
+      if (item.id === id) {
+        const nouvelleValeur = parseInt(valeur) || 1;
+        const nouvelItem = { ...item, [champ]: nouvelleValeur };
+        // Recalcul du total pour cet article
+        nouvelItem.total = nouvelItem.prixUnitaire * nouvelItem.quantite * nouvelItem.jours;
+        return nouvelItem;
+      }
+      return item;
+    }));
   };
 
   const supprimerArticle = (id) => setPanier(panier.filter(a => a.id !== id));
 
+  // --- CALCULS TOTAUX ---
   const sousTotalHT = panier.reduce((sum, a) => sum + a.total, 0);
   const tva = appliqueTVA ? sousTotalHT * 0.18 : 0;
   const totalTTCBrut = sousTotalHT + tva;
@@ -142,7 +164,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const pdfData = {
     numeroDoc, typeDoc, client: clientSelectionne, clientInfo, objet,
     dateFormatee, heureFormatee, modePaiement,
-    dateDebut, dateFin, nombreJours,
+    dateDebut, dateFin, nombreJours: nombreJoursGlobal,
     panier, sousTotalHT, tva, appliqueTVA, totalTTCBrut, remiseTTC, netAPayer
   };
 
@@ -157,11 +179,13 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
+  // --- GÉNÉRATION PDF ---
   const genererPDF = async () => {
     if (!componentRef.current) return;
     setIsGenerating(true);
 
     try {
+      // 1. Sauvegarde
       const { error: errFacture } = await supabase
         .from('factures')
         .insert([{
@@ -177,6 +201,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
           remise: remiseTTC,
           total_ttc: totalTTCBrut,
           net_a_payer: netAPayer,
+          statut_paiement: 'En attente',
           created_by: user.nom
         }]);
 
@@ -195,12 +220,10 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const { error: errDetails } = await supabase.from('facture_details').insert(details);
       if (errDetails) throw new Error("Erreur sauvegarde détails : " + errDetails.message);
 
+      // 2. PDF
       const dataUrl = await toJpeg(componentRef.current, { 
-        quality: 0.95, 
-        pixelRatio: 1.5, 
-        backgroundColor: '#ffffff',
-        skipFonts: true,
-        filter: (node) => node.tagName !== 'IMG' // AJOUT SÉCURITÉ
+        quality: 0.95, pixelRatio: 1.5, backgroundColor: '#ffffff', skipFonts: true,
+        filter: (node) => node.tagName !== 'IMG'
       });
       
       const pdf = new jsPDF('p', 'mm', 'a4');
@@ -210,7 +233,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       
       const nomFichier = `${numeroDoc}_${clientSelectionne.replace(/\s+/g, '_')}.pdf`;
-      
       pdf.save(nomFichier);
 
       const pdfBlob = pdf.output('blob');
@@ -229,7 +251,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
       setNotification({
         type: 'success',
-        message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e) avec succès.`
+        message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e).`
       });
       setTimeout(() => setNotification(null), 5000);
 
@@ -243,7 +265,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       setObjet('');
       setDateDebut('');
       setDateFin('');
-      setNombreJours(1);
+      setNombreJoursGlobal(1);
       setIsTransformation(false);
       setNumeroOrigine(null);
       
@@ -257,26 +279,14 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
-  const partagerWhatsApp = () => {
-    if (!clientInfo?.tel) {
-      alert("Le numéro de téléphone du client n'est pas renseigné.");
-      return;
-    }
-    const telNettoye = clientInfo.tel.replace(/\D/g, '');
-    const message = `Bonjour, voici votre ${typeDoc.toLowerCase()} N° ${numeroDoc} d'un montant de ${formatMonnaie(netAPayer)}. Cordialement, ${COMPANY_DATA.sigle}.`;
-    window.open(`https://wa.me/${telNettoye}?text=${encodeURIComponent(message)}`, '_blank');
-  };
+  // --- FILTRE DES PRODUITS ---
+  const produitsFiltres = produits.filter(p => p.categorie === categorieFiltre);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
       
       {notification && (
         <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
-          {notification.type === 'success' ? (
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-          ) : (
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          )}
           {notification.message}
         </div>
       )}
@@ -286,9 +296,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
           <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
             <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
               <h3 className="text-lg font-bold text-white">Gestion des Clients</h3>
-              <button onClick={() => { setShowModalClient(false); chargerDonnees(); }} className="text-white hover:bg-white/20 p-2 rounded-lg transition">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+              <button onClick={() => { setShowModalClient(false); chargerDonnees(); }} className="text-white hover:bg-white/20 p-2 rounded-lg transition">X</button>
             </div>
             <div className="p-6 overflow-y-auto">
               <ClientsPage onClientAdded={() => { setShowModalClient(false); chargerDonnees(); }} />
@@ -297,6 +305,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         </div>
       )}
 
+      {/* COLONNE GAUCHE : SAISIE */}
       <div className="lg:col-span-2 space-y-6">
         
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -312,15 +321,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
               <p className="text-xs text-slate-500 mt-1">Créé le {dateFormatee} à {heureFormatee}</p>
             </div>
           </div>
-
-          {isTransformation && (
-            <div className="mb-4 bg-indigo-50 border border-indigo-200 p-3 rounded-lg flex justify-between items-center">
-              <p className="text-sm text-indigo-800 font-medium">
-                <span className="font-bold">Mode Transformation :</span> Ce document est issu du devis. Vérifiez les informations puis validez.
-              </p>
-              <button onClick={annulerTransformation} className="text-xs text-red-600 hover:text-red-800 font-bold bg-white px-3 py-1 rounded border border-red-200">Annuler</button>
-            </div>
-          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -338,14 +338,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
                   <option value="">-- Sélectionner --</option>
                   {clients.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
                 </select>
-                <button 
-                  type="button"
-                  onClick={() => setShowModalClient(true)}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition"
-                  title="Nouveau client"
-                >
-                  +
-                </button>
+                <button type="button" onClick={() => setShowModalClient(true)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition">+</button>
               </div>
             </div>
 
@@ -375,70 +368,84 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 mb-1">Nombre de jours (auto)</label>
-                <input type="number" value={nombreJours} onChange={(e) => setNombreJours(parseInt(e.target.value))} className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-sm font-bold text-center" />
+                <input type="number" value={nombreJoursGlobal} onChange={(e) => setNombreJoursGlobal(parseInt(e.target.value) || 1)} className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-sm font-bold text-center" />
               </div>
             </div>
           </div>
         </div>
 
+        {/* AJOUT D'ARTICLES */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
             <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg">🛒</span> Ajouter des articles
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            <div className="md:col-span-6">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Produit / Service</label>
-              <select value={produitSelectionne} onChange={(e) => setProduitSelectionne(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <div className="md:col-span-4">
+              <label className="block text-xs font-bold text-slate-600 mb-1">Catégorie</label>
+              <select value={categorieFiltre} onChange={(e) => { setCategorieFiltre(e.target.value); setProduitSelectionne(''); }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                <option value="">-- Toutes --</option>
+                {categories.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-4">
+              <label className="block text-xs font-bold text-slate-600 mb-1">Produit / Service</label>
+              <select value={produitSelectionne} onChange={(e) => setProduitSelectionne(e.target.value)} disabled={!categorieFiltre} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm disabled:bg-slate-200">
                 <option value="">-- Choisir --</option>
-                {produits.map(p => <option key={p.id} value={p.designation}>{p.designation} ({p.categorie})</option>)}
+                {produitsFiltres.map(p => <option key={p.id} value={p.designation}>{p.designation} ({p.prix_unitaire} F)</option>)}
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Qté</label>
-              <input type="number" min="1" value={quantite} onChange={(e) => setQuantite(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <label className="block text-xs font-bold text-slate-600 mb-1">Quantité</label>
+              <input type="number" min="1" value={quantiteAjout} onChange={(e) => setQuantiteAjout(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
             </div>
-            <div className="md:col-span-4">
-              <button onClick={ajouterAuPanier} disabled={!produitSelectionne} className="w-full py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-sm font-medium rounded-lg transition">+ Ajouter au panier</button>
+            <div className="md:col-span-2">
+              <button onClick={ajouterAuPanier} disabled={!produitSelectionne} className="w-full py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-sm font-medium rounded-lg transition">+ Ajouter</button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* COLONNE DROITE : PANIER */}
       <div className="lg:col-span-1">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-24">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Panier</h3>
-          <div className="mb-6">
+          <div className="mb-6 overflow-x-auto">
             {panier.length === 0 ? (
               <p className="text-slate-400 text-sm text-center py-4">Le panier est vide.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="text-slate-500 border-b border-slate-200">
-                      <th className="pb-2 font-semibold">Désignation</th>
-                      <th className="pb-2 font-semibold text-center">Qté</th>
-                      <th className="pb-2 font-semibold text-center">Jours</th>
-                      <th className="pb-2 font-semibold text-right">Total</th>
-                      <th className="pb-2"></th>
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-500 border-b border-slate-200">
+                    <th className="pb-2 font-semibold">Désignation</th>
+                    <th className="pb-2 font-semibold text-center w-14">Qté</th>
+                    <th className="pb-2 font-semibold text-center w-14">Jours</th>
+                    <th className="pb-2 font-semibold text-right">Total</th>
+                    <th className="pb-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {panier.map(item => (
+                    <tr key={item.id} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2 font-medium text-slate-800 text-[11px]" title={item.designation}>{item.designation}</td>
+                      
+                      {/* CHAMPS MODIFIABLES */}
+                      <td className="py-2 text-center">
+                        <input type="number" min="1" value={item.quantite} onChange={(e) => modifierArticle(item.id, 'quantite', e.target.value)} className="w-12 text-center border border-slate-300 rounded py-1 text-xs" />
+                      </td>
+                      <td className="py-2 text-center">
+                        <input type="number" min="1" value={item.jours} onChange={(e) => modifierArticle(item.id, 'jours', e.target.value)} className="w-12 text-center border border-slate-300 rounded py-1 text-xs" />
+                      </td>
+
+                      <td className="py-2 text-right font-bold text-slate-800">{formatMonnaie(item.total)}</td>
+                      <td className="py-2 text-right">
+                        <button onClick={() => supprimerArticle(item.id)} className="text-red-400 hover:text-red-600">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {panier.map(item => (
-                      <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                        <td className="py-2 font-medium text-slate-800 truncate max-w-[80px]" title={item.designation}>{item.designation}</td>
-                        <td className="py-2 text-center text-slate-600">{item.quantite}</td>
-                        <td className="py-2 text-center text-slate-600">{item.jours}</td>
-                        <td className="py-2 text-right font-bold text-slate-800">{formatMonnaie(item.total)}</td>
-                        <td className="py-2 text-right">
-                          <button onClick={() => supprimerArticle(item.id)} className="text-red-400 hover:text-red-600">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
           
@@ -463,10 +470,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
           <div className="mt-6 space-y-2">
             <button onClick={genererPDF} disabled={panier.length === 0 || !clientSelectionne || isGenerating} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-              {isGenerating ? 'Génération et sauvegarde...' : 'Générer et Enregistrer'}
-            </button>
-            <button onClick={partagerWhatsApp} disabled={panier.length === 0 || !clientSelectionne} className="w-full py-2.5 bg-[#25D366] hover:bg-[#128C7E] disabled:bg-slate-300 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-2">
-              Partager via WhatsApp
+              {isGenerating ? 'Génération...' : 'Générer et Enregistrer'}
             </button>
           </div>
         </div>
