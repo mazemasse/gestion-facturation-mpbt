@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { estAdmin } from '../lib/permissions';
 import FacturationForm from './FacturationForm';
 import ClientsPage from './ClientsPage';
 import ProduitsPage from './ProduitsPage';
@@ -9,37 +10,35 @@ import UsersPage from './UsersPage';
 import ParametresPage from './ParametresPage';
 import ReservationsPage from './ReservationsPage';
 
-// Fonction utilitaire pour récupérer la bonne image
+// Fonction utilitaire pour récupérer la bonne image (SANS SLASH POUR ELECTRON)
 const getPhotoProfil = (nom) => {
   const nomNettoye = nom ? nom.toUpperCase() : '';
-  if (nomNettoye.includes('MASSE')) return '/masse.png';
-  if (nomNettoye.includes('WILANE')) return '/wilane.png';
-  if (nomNettoye.includes('MALADO')) return '/malado.png';
+  if (nomNettoye.includes('MASSE')) return 'masse.png';
+  if (nomNettoye.includes('WILANE')) return 'wilane.png';
+  if (nomNettoye.includes('MALADO')) return 'malado.png';
+  if (nomNettoye.includes('MAIMOUNA')) return 'danfakha.png';
   return null;
 };
 
 const MODULES = [
-  { id: 'facture', label: 'Facturation', icon: '📄', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-blue-600', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
-  { id: 'clients', label: 'Clients', icon: '👥', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-indigo-600', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
-  { id: 'produits', label: 'Produits', icon: '📦', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-purple-600', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
-  { id: 'journal', label: 'Journal', icon: '📊', roles: ['Administrateur', 'Directeur Commercial', 'Agent commercial'], color: 'text-teal-600', bg: 'bg-teal-50', headerColor: 'bg-teal-600' },
-  { id: 'stats', label: 'Statistiques', icon: '📈', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-rose-600', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
-  { id: 'users', label: 'Utilisateurs', icon: '🔐', roles: ['Administrateur', 'Directeur Commercial'], color: 'text-slate-600', bg: 'bg-slate-100', headerColor: 'bg-slate-700' },
+  { id: 'facture', label: 'Facturation', icon: '📄', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-blue-600', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
+  { id: 'clients', label: 'Clients', icon: '👥', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-indigo-600', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
+  { id: 'produits', label: 'Produits', icon: '📦', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-purple-600', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
+  { id: 'journal', label: 'Journal', icon: '📊', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-teal-600', bg: 'bg-teal-50', headerColor: 'bg-teal-600' },
+  { id: 'stats', label: 'Statistiques', icon: '📈', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-rose-600', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
+  { id: 'users', label: 'Utilisateurs', icon: '🔐', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-slate-600', bg: 'bg-slate-100', headerColor: 'bg-slate-700' },
 ];
 
 export default function Dashboard({ user, onLogout }) {
   const [activeModule, setActiveModule] = useState(null);
   const [donneesInitiales, setDonneesInitiales] = useState(null);
   
-  // --- NOUVEAUX ÉTATS POUR LES KPIs ---
   const [kpis, setKpis] = useState({ caMois: 0, resasAVenir: 0, topClient: '-', totalFactures: 0 });
   const [isLoadingKpi, setIsLoadingKpi] = useState(true);
 
-  // --- CHARGEMENT DES KPIs AU DÉMARRAGE ---
   useEffect(() => {
     const chargerKpis = async () => {
       try {
-        // 1. CA du mois en cours
         const debutMois = new Date();
         debutMois.setDate(1);
         debutMois.setHours(0,0,0,0);
@@ -60,7 +59,6 @@ export default function Dashboard({ user, onLogout }) {
           });
         }
 
-        // Trouver le top client
         let topClientNom = '-';
         let maxCa = 0;
         Object.keys(topClientMap).forEach(client => {
@@ -70,7 +68,6 @@ export default function Dashboard({ user, onLogout }) {
           }
         });
 
-        // 2. Réservations à venir (aujourd'hui ou plus tard)
         const aujourdhui = new Date().toISOString().split('T')[0];
         const { count: resasCount } = await supabase
           .from('reservations')
@@ -90,13 +87,18 @@ export default function Dashboard({ user, onLogout }) {
         setIsLoadingKpi(false);
       }
     };
-
     chargerKpis();
   }, []);
 
-  const availableModules = MODULES.filter(mod => mod.roles.includes(user.role));
-  const peutAccederParametres = user.role === 'Administrateur';
-  const peutAccederReservations = ['Administrateur', 'Directeur Commercial', 'Agent commercial'].includes(user.role);
+  // --- SÉCURITÉ GLOBALE ---
+  // Tous les rôles ont accès à tous les modules (availableModules = MODULES)
+  const availableModules = MODULES;
+  
+  // Seul Masse Ndoye voit les paramètres
+  const peutAccederParametres = estAdmin(user); 
+  
+  // Tout le monde peut réserver
+  const peutAccederReservations = true; 
   
   const photoProfil = getPhotoProfil(user.nom);
 
@@ -142,12 +144,7 @@ export default function Dashboard({ user, onLogout }) {
 
         <main className="flex-1 p-6">
           {activeModule === 'facture' && (
-            <FacturationForm 
-              user={user} 
-              typeParDefaut="Facture" 
-              donneesInitiales={donneesInitiales} 
-              onResetInitiales={() => setDonneesInitiales(null)} 
-            />
+            <FacturationForm user={user} typeParDefaut="Facture" donneesInitiales={donneesInitiales} onResetInitiales={() => setDonneesInitiales(null)} />
           )}
           {activeModule === 'clients' && <ClientsPage user={user} />}
           {activeModule === 'produits' && <ProduitsPage user={user} />}
@@ -166,7 +163,7 @@ export default function Dashboard({ user, onLogout }) {
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 flex items-center justify-center">
-            <img src="/logo.png" alt="Logo MPBT" className="h-10 w-auto object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+            <img src="logo.png" alt="Logo MPBT" className="h-10 w-auto object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
           </div>
           <div>
             <h1 className="text-lg font-bold text-slate-800 leading-tight">Gestion Commerciale</h1>
@@ -198,7 +195,6 @@ export default function Dashboard({ user, onLogout }) {
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-6 flex flex-col">
         
-        {/* BANDEAU DE BIENVENUE */}
         <div className="bg-gradient-to-r from-emerald-600 to-teal-500 rounded-2xl p-6 mb-6 text-white shadow-lg shadow-emerald-600/20 flex justify-between items-center">
           <div>
             <h2 className="text-xl font-bold mb-1">Bonjour, {user.nom.split(' ')[0]} 👋</h2>
@@ -206,68 +202,51 @@ export default function Dashboard({ user, onLogout }) {
           </div>
           <div className="hidden md:flex gap-4">
             {peutAccederReservations && (
-               <button 
-                 onClick={() => setActiveModule('reservations')}
-                 className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition shadow-md"
-               >
+               <button onClick={() => setActiveModule('reservations')} className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition shadow-md">
                  <span className="text-lg">📅</span> Nouvelle Réservation
                </button>
             )}
-            <button 
-              onClick={() => setActiveModule('facture')}
-              className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-700 hover:bg-emerald-50 text-sm font-bold rounded-lg transition shadow-md"
-            >
+            <button onClick={() => setActiveModule('facture')} className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-700 hover:bg-emerald-50 text-sm font-bold rounded-lg transition shadow-md">
               <span className="text-lg">📄</span> Nouvelle Facture
             </button>
           </div>
         </div>
 
-        {/* --- CARTES KPI --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {/* CA du mois */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Chiffre d'Affaires (Mois)</p>
-              <p className="text-2xl font-black text-slate-800 mt-1">
-                {isLoadingKpi ? '...' : formatMonnaie(kpis.caMois)}
-              </p>
+              <p className="text-2xl font-black text-slate-800 mt-1">{isLoadingKpi ? '...' : formatMonnaie(kpis.caMois)}</p>
               <p className="text-xs text-slate-400">{kpis.totalFactures} facture(s) émise(s)</p>
             </div>
           </div>
 
-          {/* Réservations à venir */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             </div>
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Réservations à venir</p>
-              <p className="text-2xl font-black text-slate-800 mt-1">
-                {isLoadingKpi ? '...' : kpis.resasAVenir}
-              </p>
+              <p className="text-2xl font-black text-slate-800 mt-1">{isLoadingKpi ? '...' : kpis.resasAVenir}</p>
               <p className="text-xs text-slate-400">Confirmées pour les jours à venir</p>
             </div>
           </div>
 
-          {/* Meilleur client */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0">
               <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
             </div>
             <div className="overflow-hidden">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Top Client (Mois)</p>
-              <p className="text-lg font-black text-slate-800 mt-1 truncate" title={kpis.topClient}>
-                {isLoadingKpi ? '...' : kpis.topClient}
-              </p>
+              <p className="text-lg font-black text-slate-800 mt-1 truncate" title={kpis.topClient}>{isLoadingKpi ? '...' : kpis.topClient}</p>
               <p className="text-xs text-slate-400">Générateur de CA ce mois-ci</p>
             </div>
           </div>
         </div>
 
-        {/* Ligne d'en-tête des modules */}
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-slate-800">Vos modules</h3>
         </div>
@@ -284,7 +263,7 @@ export default function Dashboard({ user, onLogout }) {
         <div className="flex-1"></div>
 
         <div className="mt-8 flex flex-col items-center gap-3">
-          <img src="/logo.png" alt="Logo MPBT" className="h-32 object-contain opacity-90 hover:opacity-100 transition-opacity" onError={(e) => { e.target.style.display = 'none'; }} />
+          <img src="logo.png" alt="Logo MPBT" className="h-32 object-contain opacity-90 hover:opacity-100 transition-opacity" onError={(e) => { e.target.style.display = 'none'; }} />
           <div className="w-full flex justify-between items-end border-t border-slate-200 pt-3">
             <p className="text-xs font-medium text-slate-500">Solution développée par <span className="font-bold text-slate-700">@mazemasse</span> - 2026</p>
             {peutAccederParametres && (

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { estAdmin, peutModifierCetUtilisateur } from '../lib/permissions';
 import MonProfil from './MonProfil';
 
-const ROLES_DISPONIBLES = ['Administrateur', 'Directeur Commercial', 'Agent commercial'];
+const ROLES_DISPONIBLES = ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'];
 
 export default function UsersPage({ currentUser }) {
   const [users, setUsers] = useState([]);
@@ -14,62 +15,42 @@ export default function UsersPage({ currentUser }) {
     nom: '', role: 'Agent commercial', email: ''
   });
 
-  const isAdmin = currentUser?.nom === 'MASSE NDOYE';
+  const isAdmin = estAdmin(currentUser);
   const userCible = userEnEdition ? users.find(u => u.id === userEnEdition) : null;
 
-  // --- CHARGEMENT DES UTILISATEURS (avec attente de la session) ---
   const chargerUsers = async () => {
     setIsLoading(true);
-    
-    // 1. Attendre que la session soit active
     const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
-      console.log("Pas de session active, impossible de charger les utilisateurs.");
-      setIsLoading(false);
-      return;
-    }
+    if (!session) { setIsLoading(false); return; }
 
-    // 2. Charger les utilisateurs
-    const { data, error } = await supabase
-      .from('utilisateurs')
-      .select('*')
-      .order('nom');
-
+    const { data, error } = await supabase.from('utilisateurs').select('*').order('nom');
     if (error) {
       console.error("Erreur de chargement:", error);
       alert("Erreur de chargement des utilisateurs : " + error.message);
     } else {
-      console.log("Utilisateurs chargés :", data); // Pour le débogage
       setUsers(data || []);
     }
     setIsLoading(false);
   };
 
   useEffect(() => {
-    // On attend un petit délai pour être sûr que l'authentification est terminée
-    const timer = setTimeout(() => {
-      chargerUsers();
-    }, 500);
-    
+    const timer = setTimeout(() => { chargerUsers(); }, 500);
     return () => clearTimeout(timer);
   }, []);
 
   // --- LOGIQUE DE SÉCURITÉ ---
   const peutEditer = (user) => {
     if (!user) return true; 
-    if (user.nom === 'MASSE NDOYE') return isAdmin;
-    if (isAdmin) return true;
-    return false;
+    return peutModifierCetUtilisateur(currentUser, user);
   };
 
   const peutSupprimer = (user) => {
     if (user.nom === 'MASSE NDOYE') return false;
     if (isAdmin) return true;
+    if (currentUser?.role === 'Directeur Commercial') return true;
     return false;
   };
 
-  // --- ACTIONS ---
   const handleAjouter = async (e) => {
     e.preventDefault();
     
@@ -92,10 +73,7 @@ export default function UsersPage({ currentUser }) {
       if (!uuid) return;
 
       const { error } = await supabase.from('utilisateurs').insert([{
-        id: uuid,
-        email: nouvelUser.email,
-        nom: nouvelUser.nom.toUpperCase(),
-        role: nouvelUser.role
+        id: uuid, email: nouvelUser.email, nom: nouvelUser.nom.toUpperCase(), role: nouvelUser.role
       }]);
 
       if (error) alert("Erreur : " + error.message);
@@ -128,16 +106,12 @@ export default function UsersPage({ currentUser }) {
     setShowForm(false);
   };
 
-  // Si les utilisateurs ne sont pas encore chargés, on affiche juste le profil
   const usersAffiches = isAdmin ? users : users.filter(u => u.id === currentUser?.id);
 
   return (
     <div className="space-y-4">
-      
-      {/* 1. Section Mon Profil (Mot de passe) */}
       <MonProfil currentUser={currentUser} />
 
-      {/* 2. Section Gestion (Visible seulement si Admin) */}
       {isAdmin && (
         <>
           <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
@@ -183,7 +157,6 @@ export default function UsersPage({ currentUser }) {
         </>
       )}
 
-      {/* 3. Tableau des utilisateurs */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-100 text-slate-800 border-b-2 border-slate-300 text-sm uppercase tracking-wider">
@@ -203,7 +176,7 @@ export default function UsersPage({ currentUser }) {
               <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                 <td className="px-4 py-4 font-bold text-slate-900 text-base">{u.nom}</td>
                 <td className="px-4 py-4">
-                  <span className={`px-3 py-1 rounded-md text-xs font-extrabold uppercase ${u.role === 'Administrateur' ? 'bg-red-100 text-red-800' : u.role === 'Directeur Commercial' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-800'}`}>{u.role}</span>
+                  <span className={`px-3 py-1 rounded-md text-xs font-extrabold uppercase ${u.role === 'Administrateur' ? 'bg-red-100 text-red-800' : u.role === 'Directeur Commercial' ? 'bg-indigo-100 text-indigo-800' : u.role === 'Chef de service Commercial' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'}`}>{u.role}</span>
                 </td>
                 <td className="px-4 py-4 text-slate-700 text-base">{u.email || '-'}</td>
                 {isAdmin && (

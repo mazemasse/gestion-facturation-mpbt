@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { peutModifierProduits } from '../lib/permissions';
 
 const CATEGORIES_DEFAUT = ['Restauration', 'Espaces publicitaires', 'Salles de rencontre', 'Chambres'];
 const UNITES_DEFAUT = ['Unité', 'Forfait', 'Jour', 'Nuitée', 'Pers.'];
 
 export default function ProduitsPage({ user }) {
-  // --- ÉTATS ---
   const [produits, setProduits] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -25,9 +25,8 @@ export default function ProduitsPage({ user }) {
   });
 
   // --- SÉCURITÉ : Qui peut modifier ? ---
-  const peutModifier = user?.role === 'Administrateur' || user?.role === 'Directeur Commercial';
+  const peutModifier = peutModifierProduits(user);
 
-  // --- CHARGEMENT DES DONNÉES ---
   const chargerProduits = async () => {
     setIsLoading(true);
     const { data, error } = await supabase.from('produits').select('*').order('id', { ascending: true });
@@ -40,7 +39,6 @@ export default function ProduitsPage({ user }) {
     chargerProduits();
   }, []);
 
-  // --- GESTION DES CATÉGORIES / UNITÉS ---
   const ajouterCategorie = () => {
     if (!peutModifier) return;
     if (nouvelleCategorie.trim() && !categories.includes(nouvelleCategorie.trim())) {
@@ -77,7 +75,6 @@ export default function ProduitsPage({ user }) {
     }
   };
 
-  // --- ENREGISTREMENT (AJOUT OU MODIFICATION) ---
   const handleAjouter = async (e) => {
     e.preventDefault();
     if (!peutModifier) return;
@@ -148,7 +145,6 @@ export default function ProduitsPage({ user }) {
           <svg className="w-5 h-5 text-slate-500 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </div>
         
-        {/* Bouton Nouveau Produit (seulement si peutModifier) */}
         {peutModifier && (
           <button onClick={() => { if (showForm) annulerEdition(); else setShowForm(true); }} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-base font-bold rounded-lg transition shadow-md">
             {showForm ? 'Fermer' : '+ Nouveau Produit'}
@@ -231,7 +227,6 @@ export default function ProduitsPage({ user }) {
               <th className="px-4 py-4 font-extrabold">Catégorie</th>
               <th className="px-4 py-4 font-extrabold text-center">Unité</th>
               <th className="px-4 py-4 font-extrabold text-right">Prix Unitaire</th>
-              {/* Colonne Actions cachée si pas de droit de modification */}
               {peutModifier && <th className="px-4 py-4 font-extrabold text-right">Actions</th>}
             </tr>
           </thead>
@@ -251,7 +246,6 @@ export default function ProduitsPage({ user }) {
                 <td className="px-4 py-4 text-center text-slate-700 text-base font-medium">{produit.unite}</td>
                 <td className="px-4 py-4 text-right font-bold text-purple-700 text-base">{formatMonnaie(produit.prix_unitaire)}</td>
                 
-                {/* Boutons d'action seulement si peutModifier */}
                 {peutModifier && (
                   <td className="px-4 py-4 text-right">
                     <div className="flex justify-end gap-3">

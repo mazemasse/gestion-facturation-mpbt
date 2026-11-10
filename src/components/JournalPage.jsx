@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabaseClient';
+import { estAdmin } from '../lib/permissions';
 import FacturePDF from './FacturePDF';
 
 export default function JournalPage({ user, onPreparerFacture }) {
@@ -14,9 +15,9 @@ export default function JournalPage({ user, onPreparerFacture }) {
   const [documentAImprimer, setDocumentAImprimer] = useState(null);
   const pdfRef = useRef(null);
 
-  const estAdminSupreme = user?.nom === 'MASSE NDOYE';
+  // --- SÉCURITÉ ---
+  const estAdminSupreme = estAdmin(user);
 
-  // --- CHARGEMENT DU JOURNAL ---
   const chargerJournal = async () => {
     setIsLoading(true);
     const { data, error } = await supabase
@@ -53,7 +54,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
     chargerJournal();
   }, []);
 
-  // --- CHANGER LE STATUT DE PAIEMENT ---
   const basculerStatutPaiement = async (doc) => {
     if (doc.type === 'Devis') return;
     if (doc.statut_paiement === 'Payée') return; 
@@ -72,140 +72,83 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
-  // --- GÉNÉRATION PDF SÉCURISÉE ---
   const ouvrirDocument = async (doc) => {
     try {
-      // 1. Récupérer les détails
       const { data: details, error: errDetails } = await supabase
-        .from('facture_details')
-        .select('*')
-        .eq('facture_numero', doc.numero);
-
+        .from('facture_details').select('*').eq('facture_numero', doc.numero);
       if (errDetails) throw errDetails;
 
-      // 2. Récupérer le client
       const { data: clientData } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('nom', doc.client)
-        .single();
+        .from('clients').select('*').eq('nom', doc.client).single();
 
-      // 3. Préparer les données
       const pdfData = {
-        numeroDoc: doc.numero,
-        typeDoc: doc.type,
-        client: doc.client,
-        clientInfo: clientData,
-        objet: doc.objet,
-        dateFormatee: new Date(doc.date).toLocaleDateString('fr-FR'),
+        numeroDoc: doc.numero, typeDoc: doc.type, client: doc.client, clientInfo: clientData,
+        objet: doc.objet, dateFormatee: new Date(doc.date).toLocaleDateString('fr-FR'),
         heureFormatee: new Date(doc.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        modePaiement: doc.mode_paiement,
-        dateDebut: doc.date_debut,
-        dateFin: doc.date_fin,
+        modePaiement: doc.mode_paiement, dateDebut: doc.date_debut, dateFin: doc.date_fin,
         panier: details.map(d => ({
-          designation: d.designation,
-          unite: d.unite,
-          quantite: d.quantite,
-          jours: d.jours,
-          prixUnitaire: d.prix_unitaire,
-          total: d.total
+          designation: d.designation, unite: d.unite, quantite: d.quantite,
+          jours: d.jours, prixUnitaire: d.prix_unitaire, total: d.total
         })),
-        sousTotalHT: doc.sous_total_ht,
-        tva: doc.tva,
-        appliqueTVA: true,
-        totalTTCBrut: doc.total_ttc,
-        remiseTTC: doc.remise || 0,
-        netAPayer: doc.net_a_payer
+        sousTotalHT: doc.sous_total_ht, tva: doc.tva, appliqueTVA: true,
+        totalTTCBrut: doc.total_ttc, remiseTTC: doc.remise || 0, netAPayer: doc.net_a_payer
       };
 
       setDocumentAImprimer({ data: pdfData, user: user });
       
-      // 4. Attendre le rendu du DOM, puis générer
       setTimeout(async () => {
         try {
           if (!pdfRef.current) throw new Error("Composant PDF introuvable");
-
           const dataUrl = await toJpeg(pdfRef.current, { 
-            quality: 0.95, 
-            pixelRatio: 1.5, 
-            backgroundColor: '#ffffff',
-            skipFonts: true,
+            quality: 0.95, pixelRatio: 1.5, backgroundColor: '#ffffff', skipFonts: true,
             filter: (node) => node.tagName !== 'IMG' 
           });
-
           const pdf = new jsPDF('p', 'mm', 'a4');
           const pdfWidth = pdf.internal.pageSize.getWidth();
           const pdfHeight = (pdfRef.current.offsetHeight * pdfWidth) / pdfRef.current.offsetWidth;
-          
           pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           
           const nomFichier = `${doc.numero}_${doc.client.replace(/\s+/g, '_')}.pdf`;
-          
-          // Téléchargement local
           pdf.save(nomFichier);
-
-          // Ouverture dans un nouvel onglet
+          
           const pdfBlob = pdf.output('blob');
           const url = URL.createObjectURL(pdfBlob);
-          
           const lien = document.createElement('a');
-          lien.href = url;
-          lien.target = '_blank';
-          lien.rel = 'noopener noreferrer';
-          document.body.appendChild(lien);
-          lien.click();
-          document.body.removeChild(lien);
+          lien.href = url; lien.target = '_blank'; lien.rel = 'noopener noreferrer';
+          document.body.appendChild(lien); lien.click(); document.body.removeChild(lien);
           
           setTimeout(() => URL.revokeObjectURL(url), 10000);
           setDocumentAImprimer(null);
-
         } catch (err) {
-          console.error(err);
-          alert("Erreur génération PDF : " + err.message);
-          setDocumentAImprimer(null);
+          console.error(err); alert("Erreur génération PDF : " + err.message); setDocumentAImprimer(null);
         }
       }, 500);
-
     } catch (err) {
-      alert("Erreur chargement données : " + err.message);
-      setDocumentAImprimer(null);
+      alert("Erreur chargement données : " + err.message); setDocumentAImprimer(null);
     }
   };
 
-  // --- TRANSFORMER UN DEVIS EN FACTURE ---
   const preparerTransformation = async (devis) => {
     if (window.confirm(`Transformer le Devis ${devis.numero} en Facture ?\n\nVous serez redirigé vers le formulaire de facturation pré-rempli.`)) {
       try {
         const { data: details, error } = await supabase
-          .from('facture_details')
-          .select('*')
-          .eq('facture_numero', devis.numero);
-
+          .from('facture_details').select('*').eq('facture_numero', devis.numero);
         if (error) throw error;
 
         if (onPreparerFacture) {
           onPreparerFacture({
-            client: devis.client,
-            objet: "Transformation du devis " + devis.numero,
+            client: devis.client, objet: "Transformation du devis " + devis.numero,
             numeroOrigine: devis.numero,
             panier: details.map(d => ({
-              id: Date.now() + Math.random(),
-              designation: d.designation,
-              unite: d.unite,
-              quantite: d.quantite,
-              jours: d.jours,
-              prixUnitaire: d.prix_unitaire,
-              total: d.total
+              id: Date.now() + Math.random(), designation: d.designation, unite: d.unite,
+              quantite: d.quantite, jours: d.jours, prixUnitaire: d.prix_unitaire, total: d.total
             }))
           });
         }
-      } catch (err) {
-        alert("Erreur : " + err.message);
-      }
+      } catch (err) { alert("Erreur : " + err.message); }
     }
   };
 
-  // --- SUPPRIMER UN DOCUMENT ---
   const supprimerDocument = async (doc) => {
     if (doc.type === 'Facture' && !estAdminSupreme) {
       return alert("Action refusée : Seul l'Administrateur MASSE NDOYE peut supprimer une facture.");
@@ -219,41 +162,25 @@ export default function JournalPage({ user, onPreparerFacture }) {
     }
   };
 
-  // --- PRÉPARER LA MODIFICATION (DOUBLE CLIC) ---
   const preparerModification = async (doc) => {
     if (doc.type === 'Facture' && doc.statut_paiement === 'Payée') {
       return alert("Cette facture est déjà payée et ne peut plus être modifiée.");
     }
-
     if (onPreparerFacture) {
       try {
         const { data: details } = await supabase.from('facture_details').select('*').eq('facture_numero', doc.numero);
-        
         onPreparerFacture({
-          id: doc.id,
-          numero: doc.numero,
-          client: doc.client,
-          objet: doc.objet,
-          typeDoc: doc.type,
-          dateDebut: doc.date_debut,
-          dateFin: doc.date_fin,
+          id: doc.id, numero: doc.numero, client: doc.client, objet: doc.objet, typeDoc: doc.type,
+          dateDebut: doc.date_debut, dateFin: doc.date_fin,
           panier: details.map(d => ({
-            id: Date.now() + Math.random(),
-            designation: d.designation,
-            unite: d.unite,
-            quantite: d.quantite,
-            jours: d.jours,
-            prixUnitaire: d.prix_unitaire,
-            total: d.total
+            id: Date.now() + Math.random(), designation: d.designation, unite: d.unite,
+            quantite: d.quantite, jours: d.jours, prixUnitaire: d.prix_unitaire, total: d.total
           }))
         });
-      } catch (err) {
-        alert("Erreur : " + err.message);
-      }
+      } catch (err) { alert("Erreur : " + err.message); }
     }
   };
 
-  // --- FILTRES ---
   const documentsFiltres = useMemo(() => {
     return journal.filter(doc => {
       const matchRecherche = doc.numero.toLowerCase().includes(recherche.toLowerCase()) || 
@@ -330,7 +257,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
                   <td className="px-4 py-4 font-bold text-slate-900 text-sm">{doc.client}</td>
                   <td className="px-4 py-4 text-right font-bold text-teal-700 text-sm whitespace-nowrap">{formatMonnaie(doc.montant)}</td>
                   
-                  {/* STATUT INTERACTIF */}
                   <td className="px-4 py-4 text-center whitespace-nowrap">
                     {doc.type === 'Devis' ? (
                       <span className="px-3 py-1 rounded-full text-xs font-bold uppercase bg-slate-100 text-slate-500">À transformer</span>
@@ -352,7 +278,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
 
                   <td className="px-4 py-4 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
-                      {/* BOUTON PDF CORRIGÉ */}
                       <button onClick={(e) => { e.stopPropagation(); ouvrirDocument(doc); }} className="text-teal-600 hover:text-teal-800 p-2 rounded-lg hover:bg-teal-100 transition" title="Voir / Télécharger le PDF">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                       </button>
@@ -389,7 +314,6 @@ export default function JournalPage({ user, onPreparerFacture }) {
         </div>
       </div>
 
-      {/* ZONE CACHÉE PDF */}
       {documentAImprimer && (
         <div style={{ position: 'fixed', top: 0, left: 0, opacity: 0, pointerEvents: 'none', zIndex: -1 }}>
           <FacturePDF ref={pdfRef} data={documentAImprimer.data} user={documentAImprimer.user} />
