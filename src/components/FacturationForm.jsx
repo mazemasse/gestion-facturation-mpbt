@@ -6,6 +6,8 @@ import { supabase } from '../lib/supabaseClient';
 import FacturePDF from './FacturePDF';
 import ClientsPage from './ClientsPage';
 
+const CATEGORIES_DISPONIBLES = ['Restauration', 'Espaces publicitaires', 'Chambres', 'Salles de rencontre'];
+
 export default function FacturationForm({ user, typeParDefaut = 'Facture', donneesInitiales, onResetInitiales }) {
   const [typeDoc, setTypeDoc] = useState(typeParDefaut);
   const [numeroDoc, setNumeroDoc] = useState('');
@@ -17,7 +19,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const [dateFin, setDateFin] = useState('');
   const [nombreJoursGlobal, setNombreJoursGlobal] = useState(1);
 
-  // NOUVEAUX ÉTATS POUR LE FILTRE PRODUIT
   const [categorieFiltre, setCategorieFiltre] = useState('');
   const [produitSelectionne, setProduitSelectionne] = useState('');
   const [quantiteAjout, setQuantiteAjout] = useState(1);
@@ -34,29 +35,24 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const [clients, setClients] = useState([]);
   const [produits, setProduits] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [toutesLesFactures, setToutesLesFactures] = useState([]);
 
   const componentRef = useRef(null);
 
-  // --- CHARGEMENT INITIAL ---
   const chargerDonnees = async () => {
     const { data: clientsData } = await supabase.from('clients').select('*').order('nom');
     const { data: produitsData } = await supabase.from('produits').select('*').order('designation');
     const { data: facturesData } = await supabase.from('factures').select('numero');
-    const { data: categoriesData } = await supabase.from('categories_espaces').select('*').order('nom'); // On réutilise la table des catégories
     
     setClients(clientsData || []);
     setProduits(produitsData || []);
     setToutesLesFactures(facturesData || []);
-    setCategories(categoriesData || []);
   };
 
   useEffect(() => {
     chargerDonnees();
   }, []);
 
-  // --- CALCUL AUTOMATIQUE DU NOMBRE DE JOURS ---
   useEffect(() => {
     if (dateDebut && dateFin) {
       const debut = new Date(dateDebut);
@@ -71,7 +67,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   }, [dateDebut, dateFin]);
 
-  // --- GESTION DES DONNÉES INITIALES (Transformation Devis) ---
   useEffect(() => {
     if (donneesInitiales) {
       setClientSelectionne(donneesInitiales.client);
@@ -84,7 +79,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   }, [donneesInitiales, onResetInitiales]);
 
-  // --- NUMÉROTATION SÉQUENTIELLE SÉCURISÉE ---
   useEffect(() => {
     if (toutesLesFactures.length === 0 && !numeroDoc) {
       setNumeroDoc(typeDoc === 'Facture' ? 'F-2026-001' : 'D-2026-001');
@@ -115,11 +109,12 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
   const dateFormatee = dateCreation.toLocaleDateString('fr-FR');
   const heureFormatee = dateCreation.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // --- AJOUTER AU PANIER ---
   const ajouterAuPanier = () => {
     if (!produitSelectionne || quantiteAjout < 1) return;
-    const produitInfo = produits.find(p => p.designation === produitSelectionne);
     
+    const produitInfo = produits.find(p => p.designation === produitSelectionne);
+    if (!produitInfo) return;
+
     const total = produitInfo.prix_unitaire * parseInt(quantiteAjout) * parseInt(nombreJoursGlobal);
 
     setPanier([...panier, {
@@ -135,13 +130,11 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     setQuantiteAjout(1);
   };
 
-  // --- MODIFIER UN ARTICLE DANS LE PANIER ---
   const modifierArticle = (id, champ, valeur) => {
     setPanier(panier.map(item => {
       if (item.id === id) {
         const nouvelleValeur = parseInt(valeur) || 1;
         const nouvelItem = { ...item, [champ]: nouvelleValeur };
-        // Recalcul du total pour cet article
         nouvelItem.total = nouvelItem.prixUnitaire * nouvelItem.quantite * nouvelItem.jours;
         return nouvelItem;
       }
@@ -151,7 +144,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
 
   const supprimerArticle = (id) => setPanier(panier.filter(a => a.id !== id));
 
-  // --- CALCULS TOTAUX ---
   const sousTotalHT = panier.reduce((sum, a) => sum + a.total, 0);
   const tva = appliqueTVA ? sousTotalHT * 0.18 : 0;
   const totalTTCBrut = sousTotalHT + tva;
@@ -179,13 +171,11 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
-  // --- GÉNÉRATION PDF ---
   const genererPDF = async () => {
     if (!componentRef.current) return;
     setIsGenerating(true);
 
     try {
-      // 1. Sauvegarde
       const { error: errFacture } = await supabase
         .from('factures')
         .insert([{
@@ -220,7 +210,6 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       const { error: errDetails } = await supabase.from('facture_details').insert(details);
       if (errDetails) throw new Error("Erreur sauvegarde détails : " + errDetails.message);
 
-      // 2. PDF
       const dataUrl = await toJpeg(componentRef.current, { 
         quality: 0.95, pixelRatio: 1.5, backgroundColor: '#ffffff', skipFonts: true,
         filter: (node) => node.tagName !== 'IMG'
@@ -249,10 +238,7 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         setTimeout(() => URL.revokeObjectURL(url), 20000);
       }, 1000);
 
-      setNotification({
-        type: 'success',
-        message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e).`
-      });
+      setNotification({ type: 'success', message: `${typeDoc} ${numeroDoc} généré(e) et enregistré(e).` });
       setTimeout(() => setNotification(null), 5000);
 
       if (isTransformation && numeroOrigine) {
@@ -279,14 +265,22 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
     }
   };
 
-  // --- FILTRE DES PRODUITS ---
-  const produitsFiltres = produits.filter(p => p.categorie === categorieFiltre);
+  const produitsFiltres = produits.filter(p => {
+    if (!categorieFiltre) return false;
+    const cat = categorieFiltre.toLowerCase();
+    const prodCat = (p.categorie || '').toLowerCase();
+
+    if (cat === 'salles de rencontre') {
+      return prodCat.includes('salle') || prodCat.includes('auditorium');
+    }
+    return prodCat === cat;
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
       
       {notification && (
-        <div className={`fixed bottom-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white font-bold flex items-center gap-3 animate-slide-in ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <div className={`fixed bottom-6 right-6 z-50 px-8 py-5 rounded-2xl shadow-2xl text-white font-bold text-lg flex items-center gap-3 animate-slide-in ${notification.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
           {notification.message}
         </div>
       )}
@@ -295,8 +289,8 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-slate-50 w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
             <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white">Gestion des Clients</h3>
-              <button onClick={() => { setShowModalClient(false); chargerDonnees(); }} className="text-white hover:bg-white/20 p-2 rounded-lg transition">X</button>
+              <h3 className="text-xl font-bold text-white">Gestion des Clients</h3>
+              <button onClick={() => { setShowModalClient(false); chargerDonnees(); }} className="text-white hover:bg-white/20 p-2 rounded-lg transition text-lg">X</button>
             </div>
             <div className="p-6 overflow-y-auto">
               <ClientsPage onClientAdded={() => { setShowModalClient(false); chargerDonnees(); }} />
@@ -309,42 +303,42 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       <div className="lg:col-span-2 space-y-6">
         
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <span className={`p-1.5 rounded-lg text-white ${typeDoc === 'Facture' ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+          <div className="flex justify-between items-start mb-6">
+            <h3 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+              <span className={`p-2 rounded-lg text-white ${typeDoc === 'Facture' ? 'bg-emerald-500' : 'bg-amber-500'}`}>
                 {typeDoc === 'Facture' ? '📄' : '📝'}
               </span> 
               Informations du {typeDoc.toLowerCase()}
             </h3>
             <div className="text-right">
-              <p className="text-sm font-bold text-slate-800 font-mono bg-slate-100 px-3 py-1 rounded">{numeroDoc}</p>
-              <p className="text-xs text-slate-500 mt-1">Créé le {dateFormatee} à {heureFormatee}</p>
+              <p className="text-base font-bold text-slate-800 font-mono bg-slate-100 px-4 py-1.5 rounded-lg">{numeroDoc}</p>
+              <p className="text-sm text-slate-500 mt-1">Créé le {dateFormatee} à {heureFormatee}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Type</label>
+              <label className="block text-base font-medium text-slate-700 mb-2">Type</label>
               <div className="flex gap-2">
-                <button onClick={() => setTypeDoc('Facture')} className={`flex-1 py-2 rounded-lg border font-medium text-sm transition ${typeDoc === 'Facture' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Facture</button>
-                <button onClick={() => setTypeDoc('Devis')} className={`flex-1 py-2 rounded-lg border font-medium text-sm transition ${typeDoc === 'Devis' ? 'bg-amber-50 border-amber-500 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Devis</button>
+                <button onClick={() => setTypeDoc('Facture')} className={`flex-1 py-2.5 rounded-lg border font-medium text-base transition ${typeDoc === 'Facture' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Facture</button>
+                <button onClick={() => setTypeDoc('Devis')} className={`flex-1 py-2.5 rounded-lg border font-medium text-base transition ${typeDoc === 'Devis' ? 'bg-amber-50 border-amber-500 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Devis</button>
               </div>
             </div>
             
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Client</label>
+              <label className="block text-base font-medium text-slate-700 mb-2">Client</label>
               <div className="flex gap-1">
-                <select value={clientSelectionne} onChange={(e) => setClientSelectionne(e.target.value)} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                <select value={clientSelectionne} onChange={(e) => setClientSelectionne(e.target.value)} className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-emerald-500">
                   <option value="">-- Sélectionner --</option>
                   {clients.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
                 </select>
-                <button type="button" onClick={() => setShowModalClient(true)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition">+</button>
+                <button type="button" onClick={() => setShowModalClient(true)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-base font-bold transition">+</button>
               </div>
             </div>
 
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Mode de paiement</label>
-              <select value={modePaiement} onChange={(e) => setModePaiement(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              <label className="block text-base font-medium text-slate-700 mb-2">Mode de paiement</label>
+              <select value={modePaiement} onChange={(e) => setModePaiement(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-emerald-500">
                 <option value="Virement">Virement Bancaire</option>
                 <option value="Chèque">Chèque</option>
                 <option value="Espèces">Espèces</option>
@@ -353,53 +347,68 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
             </div>
 
             <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Objet de la prestation</label>
-              <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex: Soirée de gala..." className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <label className="block text-base font-medium text-slate-700 mb-2">Objet de la prestation</label>
+              <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} placeholder="Ex: Soirée de gala..." className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
 
-            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-5 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Date de début</label>
-                <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                <label className="block text-sm font-bold text-slate-600 mb-1.5">Date de début</label>
+                <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base focus:ring-2 focus:ring-emerald-500" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Date de fin</label>
-                <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                <label className="block text-sm font-bold text-slate-600 mb-1.5">Date de fin</label>
+                <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-base focus:ring-2 focus:ring-emerald-500" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Nombre de jours (auto)</label>
-                <input type="number" value={nombreJoursGlobal} onChange={(e) => setNombreJoursGlobal(parseInt(e.target.value) || 1)} className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-sm font-bold text-center" />
+                <label className="block text-sm font-bold text-slate-600 mb-1.5">Nombre de jours (auto)</label>
+                <input type="number" value={nombreJoursGlobal} onChange={(e) => setNombreJoursGlobal(parseInt(e.target.value) || 1)} className="w-full px-3 py-2.5 bg-slate-100 border border-slate-300 rounded-lg text-base font-bold text-center" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* AJOUT D'ARTICLES */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg">🛒</span> Ajouter des articles
+          <h3 className="text-xl font-bold text-slate-800 mb-5 flex items-center gap-3">
+            <span className="bg-blue-100 text-blue-600 p-2 rounded-lg">🛒</span> Ajouter des articles
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
             <div className="md:col-span-4">
-              <label className="block text-xs font-bold text-slate-600 mb-1">Catégorie</label>
-              <select value={categorieFiltre} onChange={(e) => { setCategorieFiltre(e.target.value); setProduitSelectionne(''); }} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm">
-                <option value="">-- Toutes --</option>
-                {categories.map(c => <option key={c.id} value={c.nom}>{c.nom}</option>)}
+              <label className="block text-base font-bold text-slate-600 mb-2">Catégorie</label>
+              <select 
+                value={categorieFiltre} 
+                onChange={(e) => { 
+                  setCategorieFiltre(e.target.value); 
+                  setProduitSelectionne(''); 
+                }} 
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base"
+              >
+                <option value="">-- Choisir une catégorie --</option>
+                {CATEGORIES_DISPONIBLES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="md:col-span-4">
-              <label className="block text-xs font-bold text-slate-600 mb-1">Produit / Service</label>
-              <select value={produitSelectionne} onChange={(e) => setProduitSelectionne(e.target.value)} disabled={!categorieFiltre} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm disabled:bg-slate-200">
+              <label className="block text-base font-bold text-slate-600 mb-2">Produit / Service</label>
+              <select 
+                value={produitSelectionne} 
+                onChange={(e) => setProduitSelectionne(e.target.value)} 
+                disabled={!categorieFiltre} 
+                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base disabled:bg-slate-200"
+              >
                 <option value="">-- Choisir --</option>
-                {produitsFiltres.map(p => <option key={p.id} value={p.designation}>{p.designation} ({p.prix_unitaire} F)</option>)}
+                {produitsFiltres.map(p => (
+                  <option key={p.id} value={p.designation}>
+                    {p.designation} - {formatMonnaie(p.prix_unitaire)} / {p.unite}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-600 mb-1">Quantité</label>
-              <input type="number" min="1" value={quantiteAjout} onChange={(e) => setQuantiteAjout(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+              <label className="block text-base font-bold text-slate-600 mb-2">Quantité</label>
+              <input type="number" min="1" value={quantiteAjout} onChange={(e) => setQuantiteAjout(e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-base focus:ring-2 focus:ring-emerald-500" />
             </div>
             <div className="md:col-span-2">
-              <button onClick={ajouterAuPanier} disabled={!produitSelectionne} className="w-full py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-sm font-medium rounded-lg transition">+ Ajouter</button>
+              <button onClick={ajouterAuPanier} disabled={!produitSelectionne} className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white text-base font-medium rounded-lg transition">+ Ajouter</button>
             </div>
           </div>
         </div>
@@ -408,38 +417,37 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
       {/* COLONNE DROITE : PANIER */}
       <div className="lg:col-span-1">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-24">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Panier</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-5">Panier</h3>
           <div className="mb-6 overflow-x-auto">
             {panier.length === 0 ? (
-              <p className="text-slate-400 text-sm text-center py-4">Le panier est vide.</p>
+              <p className="text-slate-400 text-base text-center py-6">Le panier est vide.</p>
             ) : (
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="text-slate-500 border-b border-slate-200">
-                    <th className="pb-2 font-semibold">Désignation</th>
-                    <th className="pb-2 font-semibold text-center w-14">Qté</th>
-                    <th className="pb-2 font-semibold text-center w-14">Jours</th>
-                    <th className="pb-2 font-semibold text-right">Total</th>
-                    <th className="pb-2"></th>
+                    <th className="pb-3 font-semibold">Désignation</th>
+                    <th className="pb-3 font-semibold text-center w-16">Qté</th>
+                    <th className="pb-3 font-semibold text-center w-16">Jours</th>
+                    <th className="pb-3 font-semibold text-right">Total</th>
+                    <th className="pb-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {panier.map(item => (
                     <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                      <td className="py-2 font-medium text-slate-800 text-[11px]" title={item.designation}>{item.designation}</td>
+                      <td className="py-3 font-medium text-slate-800 text-sm" title={item.designation}>{item.designation}</td>
                       
-                      {/* CHAMPS MODIFIABLES */}
-                      <td className="py-2 text-center">
-                        <input type="number" min="1" value={item.quantite} onChange={(e) => modifierArticle(item.id, 'quantite', e.target.value)} className="w-12 text-center border border-slate-300 rounded py-1 text-xs" />
+                      <td className="py-3 text-center">
+                        <input type="number" min="1" value={item.quantite} onChange={(e) => modifierArticle(item.id, 'quantite', e.target.value)} className="w-14 text-center border border-slate-300 rounded py-1.5 text-sm" />
                       </td>
-                      <td className="py-2 text-center">
-                        <input type="number" min="1" value={item.jours} onChange={(e) => modifierArticle(item.id, 'jours', e.target.value)} className="w-12 text-center border border-slate-300 rounded py-1 text-xs" />
+                      <td className="py-3 text-center">
+                        <input type="number" min="1" value={item.jours} onChange={(e) => modifierArticle(item.id, 'jours', e.target.value)} className="w-14 text-center border border-slate-300 rounded py-1.5 text-sm" />
                       </td>
 
-                      <td className="py-2 text-right font-bold text-slate-800">{formatMonnaie(item.total)}</td>
-                      <td className="py-2 text-right">
+                      <td className="py-3 text-right font-bold text-slate-800 text-sm">{formatMonnaie(item.total)}</td>
+                      <td className="py-3 text-right">
                         <button onClick={() => supprimerArticle(item.id)} className="text-red-400 hover:text-red-600">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                       </td>
                     </tr>
@@ -449,27 +457,27 @@ export default function FacturationForm({ user, typeParDefaut = 'Facture', donne
             )}
           </div>
           
-          <div className="space-y-3 border-t border-slate-200 pt-4 mb-4">
+          <div className="space-y-4 border-t border-slate-200 pt-5 mb-5">
             <div className="flex items-center justify-between">
-              <label className="text-sm text-slate-600 font-medium">Appliquer la TVA (18%)</label>
-              <input type="checkbox" checked={appliqueTVA} onChange={(e) => setAppliqueTVA(e.target.checked)} className="w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer" />
+              <label className="text-base text-slate-600 font-medium">Appliquer la TVA (18%)</label>
+              <input type="checkbox" checked={appliqueTVA} onChange={(e) => setAppliqueTVA(e.target.checked)} className="w-6 h-6 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer" />
             </div>
             <div className="flex justify-between items-center">
-              <label className="text-sm text-slate-600">Remise (après TTC)</label>
-              <input type="number" min="0" value={remiseTTC} onChange={(e) => setRemiseTTC(Number(e.target.value))} className="w-24 px-2 py-1 text-right bg-slate-50 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <label className="text-base text-slate-600">Remise (après TTC)</label>
+              <input type="number" min="0" value={remiseTTC} onChange={(e) => setRemiseTTC(Number(e.target.value))} className="w-28 px-3 py-2 text-right bg-slate-50 border border-slate-200 rounded text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
           </div>
 
-          <div className="space-y-2 border-t border-slate-200 pt-4">
-            <div className="flex justify-between text-sm text-slate-600"><span>Sous-total HT</span><span className="font-medium text-slate-800">{formatMonnaie(sousTotalHT)}</span></div>
-            {appliqueTVA && (<div className="flex justify-between text-sm text-slate-600"><span>TVA (18%)</span><span className="font-medium text-slate-800">{formatMonnaie(tva)}</span></div>)}
-            <div className="flex justify-between text-sm text-slate-600 border-b border-slate-100 pb-2"><span>Total TTC Brut</span><span className="font-medium text-slate-800">{formatMonnaie(totalTTCBrut)}</span></div>
-            {remiseTTC > 0 && (<div className="flex justify-between text-sm text-red-500"><span>Remise TTC</span><span className="font-medium">-{formatMonnaie(remiseTTC)}</span></div>)}
-            <div className="flex justify-between text-lg font-bold text-emerald-600 pt-2 mt-2"><span>Net à Payer</span><span>{formatMonnaie(netAPayer)}</span></div>
+          <div className="space-y-3 border-t border-slate-200 pt-5">
+            <div className="flex justify-between text-base text-slate-600"><span>Sous-total HT</span><span className="font-medium text-slate-800">{formatMonnaie(sousTotalHT)}</span></div>
+            {appliqueTVA && (<div className="flex justify-between text-base text-slate-600"><span>TVA (18%)</span><span className="font-medium text-slate-800">{formatMonnaie(tva)}</span></div>)}
+            <div className="flex justify-between text-base text-slate-600 border-b border-slate-100 pb-3"><span>Total TTC Brut</span><span className="font-medium text-slate-800">{formatMonnaie(totalTTCBrut)}</span></div>
+            {remiseTTC > 0 && (<div className="flex justify-between text-base text-red-500"><span>Remise TTC</span><span className="font-medium">-{formatMonnaie(remiseTTC)}</span></div>)}
+            <div className="flex justify-between text-xl font-bold text-emerald-600 pt-3 mt-3"><span>Net à Payer</span><span>{formatMonnaie(netAPayer)}</span></div>
           </div>
 
-          <div className="mt-6 space-y-2">
-            <button onClick={genererPDF} disabled={panier.length === 0 || !clientSelectionne || isGenerating} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+          <div className="mt-8 space-y-3">
+            <button onClick={genererPDF} disabled={panier.length === 0 || !clientSelectionne || isGenerating} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold text-lg rounded-xl shadow-lg transition flex items-center justify-center gap-2">
               {isGenerating ? 'Génération...' : 'Générer et Enregistrer'}
             </button>
           </div>

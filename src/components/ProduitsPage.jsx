@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { peutModifierProduits } from '../lib/permissions';
 
-const CATEGORIES_DEFAUT = ['Restauration', 'Espaces publicitaires', 'Salles de rencontre', 'Chambres'];
+const CATEGORIES_DEFAUT = ['Restauration', 'Espaces publicitaires', 'Chambres', 'Salles de rencontre'];
 const UNITES_DEFAUT = ['Unité', 'Forfait', 'Jour', 'Nuitée', 'Pers.'];
 
 export default function ProduitsPage({ user }) {
