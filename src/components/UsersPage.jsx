@@ -199,3 +199,18 @@ export default function UsersPage({ currentUser }) {
     </div>
   );
 }
+// Fonction à ajouter dans UsersPage.jsx
+const envoyerLienReinitialisation = async (email, nom) => {
+  if (!window.confirm(`Envoyer un lien de réinitialisation de mot de passe à ${nom} (${email}) ?`)) return;
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    // L'URL où l'agent sera redirigé après avoir cliqué sur le lien
+    redirectTo: `${window.location.origin}/update-password`, 
+  });
+
+  if (error) {
+    alert("Erreur lors de l'envoi : " + error.message);
+  } else {
+    alert(`Un email de réinitialisation a été envoyé à ${email}. Demandez à l'agent de vérifier sa boîte de réception.`);
+  }
+};
