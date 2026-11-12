@@ -9,9 +9,10 @@ import StatsPage from './StatsPage';
 import UsersPage from './UsersPage';
 import ParametresPage from './ParametresPage';
 import ReservationsPage from './ReservationsPage';
+import MonProfil from './MonProfil'; // <-- IMPORT AJOUTÉ
 
-// Fonction utilitaire pour récupérer la bonne image (SANS SLASH POUR ELECTRON)
-const getPhotoProfil = (nom) => {
+// Fonction utilitaire pour récupérer la bonne image par défaut
+const getPhotoProfilParDefaut = (nom) => {
   const nomNettoye = nom ? nom.toUpperCase() : '';
   if (nomNettoye.includes('MASSE')) return 'masse.png';
   if (nomNettoye.includes('WILANE')) return 'wilane.png';
@@ -20,21 +21,25 @@ const getPhotoProfil = (nom) => {
   return null;
 };
 
-const MODULES = [
-  { id: 'facture', label: 'Facturation', icon: '📄', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-blue-600', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
-  { id: 'clients', label: 'Clients', icon: '👥', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-indigo-600', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
-  { id: 'produits', label: 'Produits', icon: '📦', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-purple-600', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
-  { id: 'journal', label: 'Journal', icon: '📊', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-teal-600', bg: 'bg-teal-50', headerColor: 'bg-teal-600' },
-  { id: 'stats', label: 'Statistiques', icon: '📈', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-rose-600', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
-  { id: 'users', label: 'Utilisateurs', icon: '🔐', roles: ['Administrateur', 'Directeur Commercial', 'Chef de service Commercial', 'Agent commercial'], color: 'text-slate-600', bg: 'bg-slate-100', headerColor: 'bg-slate-700' },
-];
-
 export default function Dashboard({ user, onLogout }) {
   const [activeModule, setActiveModule] = useState(null);
   const [donneesInitiales, setDonneesInitiales] = useState(null);
   
+  // --- NOUVEAUX ÉTATS POUR LE PROFIL ET LE MENU ---
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [customPhoto, setCustomPhoto] = useState(null);
+
   const [kpis, setKpis] = useState({ caMois: 0, resasAVenir: 0, topClient: '-', totalFactures: 0 });
   const [isLoadingKpi, setIsLoadingKpi] = useState(true);
+
+  // Chargement de la photo personnalisée de l'utilisateur
+  useEffect(() => {
+    const fetchUserPhoto = async () => {
+      const { data } = await supabase.from('utilisateurs').select('photo_url').eq('id', user.id).single();
+      if (data && data.photo_url) setCustomPhoto(data.photo_url);
+    };
+    fetchUserPhoto();
+  }, [user.id]);
 
   useEffect(() => {
     const chargerKpis = async () => {
@@ -91,16 +96,20 @@ export default function Dashboard({ user, onLogout }) {
   }, []);
 
   // --- SÉCURITÉ GLOBALE ---
-  // Tous les rôles ont accès à tous les modules (availableModules = MODULES)
-  const availableModules = MODULES;
+  const isAdmin = estAdmin(user);
   
-  // Seul Masse Ndoye voit les paramètres
-  const peutAccederParametres = estAdmin(user); 
-  
-  // Tout le monde peut réserver
-  const peutAccederReservations = true; 
-  
-  const photoProfil = getPhotoProfil(user.nom);
+  // On filtre les modules selon les droits
+  const availableModules = [
+    { id: 'facture', label: 'Facturation', icon: '📄', bg: 'bg-blue-50', headerColor: 'bg-blue-600' },
+    { id: 'clients', label: 'Clients', icon: '👥', bg: 'bg-indigo-50', headerColor: 'bg-indigo-600' },
+    { id: 'produits', label: 'Produits', icon: '📦', bg: 'bg-purple-50', headerColor: 'bg-purple-600' },
+    { id: 'journal', label: 'Journal', icon: '📊', bg: 'bg-teal-50', headerColor: 'bg-teal-600' },
+    { id: 'stats', label: 'Statistiques', icon: '📈', bg: 'bg-rose-50', headerColor: 'bg-rose-600' },
+    // Le module Utilisateurs est ajouté UNIQUEMENT si c'est l'admin
+    ...(isAdmin ? [{ id: 'users', label: 'Utilisateurs', icon: '🔐', bg: 'bg-slate-100', headerColor: 'bg-slate-700' }] : []),
+  ];
+
+  const photoProfil = customPhoto || getPhotoProfilParDefaut(user.nom);
 
   const handlePreparerFacture = (data) => {
     setDonneesInitiales(data);
@@ -109,12 +118,15 @@ export default function Dashboard({ user, onLogout }) {
 
   const formatMonnaie = (montant) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XOF', maximumFractionDigits: 0 }).format(montant).replace('XOF', 'F');
 
+  // --- VUE MODULE ACTIF ---
   if (activeModule) {
     const currentMod = activeModule === 'parametres' 
       ? { label: 'Paramètres', icon: '⚙️', bg: 'bg-slate-100', headerColor: 'bg-slate-700' }
       : activeModule === 'reservations'
       ? { label: 'Réservations', icon: '📅', bg: 'bg-purple-50', headerColor: 'bg-purple-600' }
-      : MODULES.find(m => m.id === activeModule);
+      : activeModule === 'profil'
+      ? { label: 'Mon Profil', icon: '👤', bg: 'bg-emerald-50', headerColor: 'bg-emerald-600' }
+      : availableModules.find(m => m.id === activeModule);
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -143,9 +155,7 @@ export default function Dashboard({ user, onLogout }) {
         </header>
 
         <main className="flex-1 p-6">
-          {activeModule === 'facture' && (
-            <FacturationForm user={user} typeParDefaut="Facture" donneesInitiales={donneesInitiales} onResetInitiales={() => setDonneesInitiales(null)} />
-          )}
+          {activeModule === 'facture' && <FacturationForm user={user} typeParDefaut="Facture" donneesInitiales={donneesInitiales} onResetInitiales={() => setDonneesInitiales(null)} />}
           {activeModule === 'clients' && <ClientsPage user={user} />}
           {activeModule === 'produits' && <ProduitsPage user={user} />}
           {activeModule === 'journal' && <JournalPage user={user} onPreparerFacture={handlePreparerFacture} />}
@@ -153,14 +163,16 @@ export default function Dashboard({ user, onLogout }) {
           {activeModule === 'users' && <UsersPage currentUser={user} />}
           {activeModule === 'parametres' && <ParametresPage />}
           {activeModule === 'reservations' && <ReservationsPage user={user} />}
+          {activeModule === 'profil' && <MonProfil currentUser={user} onUpdatePhoto={(photo) => setCustomPhoto(photo)} />}
         </main>
       </div>
     );
   }
 
+  // --- VUE ACCUEIL (DASHBOARD) ---
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 flex items-center justify-center">
             <img src="logo.png" alt="Logo MPBT" className="h-10 w-auto object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
@@ -170,22 +182,47 @@ export default function Dashboard({ user, onLogout }) {
             <p className="text-xs text-slate-500">Maison de la Presse Babacar Touré</p>
           </div>
         </div>
+
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-sm">
-               {photoProfil ? (
-                  <img src={photoProfil} alt="Profil" className="w-full h-full object-cover" />
-               ) : (
-                  <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-500">
-                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                  </div>
-               )}
-            </div>
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold text-slate-800">{user.nom}</p>
-              <p className="text-xs text-emerald-600 font-medium">{user.role}</p>
-            </div>
+          
+          {/* NOUVEAU MENU DÉROULANT UTILISATEUR */}
+          <div className="relative">
+            <button 
+              onClick={() => setShowUserMenu(!showUserMenu)} 
+              className="flex items-center gap-3 p-1 rounded-full hover:bg-slate-100 transition"
+            >
+              <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 shadow-sm">
+                 {photoProfil ? (
+                    <img src={photoProfil} alt="Profil" className="w-full h-full object-cover" />
+                 ) : (
+                    <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-500">
+                       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    </div>
+                 )}
+              </div>
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-bold text-slate-800">{user.nom}</p>
+                <p className="text-xs text-emerald-600 font-medium">{user.role}</p>
+              </div>
+            </button>
+
+            {/* MENU DÉROULANT */}
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-50">
+                <div className="px-4 py-2 border-b border-slate-100 mb-1">
+                  <p className="text-sm font-bold text-slate-800">{user.nom}</p>
+                  <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                </div>
+                <button 
+                  onClick={() => { setActiveModule('profil'); setShowUserMenu(false); }}
+                  className="w-full text-left px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <span>👤</span> Mon Profil
+                </button>
+              </div>
+            )}
           </div>
+
           <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             Déconnexion
@@ -201,11 +238,9 @@ export default function Dashboard({ user, onLogout }) {
             <p className="text-emerald-50 text-sm">Voici un résumé de votre activité commerciale aujourd'hui.</p>
           </div>
           <div className="hidden md:flex gap-4">
-            {peutAccederReservations && (
-               <button onClick={() => setActiveModule('reservations')} className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition shadow-md">
-                 <span className="text-lg">📅</span> Nouvelle Réservation
-               </button>
-            )}
+            <button onClick={() => setActiveModule('reservations')} className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-lg transition shadow-md">
+              <span className="text-lg">📅</span> Nouvelle Réservation
+            </button>
             <button onClick={() => setActiveModule('facture')} className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-700 hover:bg-emerald-50 text-sm font-bold rounded-lg transition shadow-md">
               <span className="text-lg">📄</span> Nouvelle Facture
             </button>
@@ -266,7 +301,9 @@ export default function Dashboard({ user, onLogout }) {
           <img src="logo.png" alt="Logo MPBT" className="h-32 object-contain opacity-90 hover:opacity-100 transition-opacity" onError={(e) => { e.target.style.display = 'none'; }} />
           <div className="w-full flex justify-between items-end border-t border-slate-200 pt-3">
             <p className="text-xs font-medium text-slate-500">Solution développée par <span className="font-bold text-slate-700">@mazemasse</span> - 2026</p>
-            {peutAccederParametres && (
+            
+            {/* BOUTON PARAMÈTRES (ADMIN UNIQUEMENT) */}
+            {isAdmin && (
               <button onClick={() => setActiveModule('parametres')} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-lg transition shadow-md" title="Paramètres de l'application">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 Paramètres

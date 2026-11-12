@@ -18,16 +18,14 @@ export default function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // Logo par défaut local (sans slash pour Electron)
   const [logoUrl, setLogoUrl] = useState('logo.png');
 
   // États pour la modale Administrateur
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [adminError, setAdminError] = useState('');
   const [adminLoading, setAdminLoading] = useState(false);
+  const [adminUser, setAdminUser] = useState(null); // Stocke les infos de Masse
 
   // --- CHARGEMENT DU LOGO ET DES PROFILS ---
   useEffect(() => {
@@ -38,15 +36,19 @@ export default function Login({ onLoginSuccess }) {
         setLogoUrl(paramData.logo);
       }
 
-      // 2. Charger uniquement les utilisateurs NON administrateurs
-      const { data, error } = await supabase
-        .from('utilisateurs')
-        .select('*')
-        .neq('role', 'Administrateur')
-        .order('nom');
+      // 2. Charger les utilisateurs
+      const { data, error } = await supabase.from('utilisateurs').select('*').order('nom');
         
-      if (error) console.error("Erreur chargement profils:", error);
-      else setUsers(data || []);
+      if (error) {
+        console.error("Erreur chargement profils:", error);
+      } else {
+        // On sépare les commerciaux de l'admin
+        const commerciaux = data.filter(u => u.role !== 'Administrateur');
+        const admin = data.find(u => u.role === 'Administrateur');
+        
+        setUsers(commerciaux || []);
+        setAdminUser(admin); // On garde les infos de l'admin en mémoire
+      }
     };
     initialiser();
   }, []);
@@ -86,39 +88,36 @@ export default function Login({ onLoginSuccess }) {
     }
   };
 
-  // --- CONNEXION ADMINISTRATEUR (MODALE) ---
+  // --- CONNEXION ADMINISTRATEUR (MODALE SIMPLIFIÉE) ---
   const handleAdminSubmit = async (e) => {
     e.preventDefault();
     setAdminError('');
     setAdminLoading(true);
 
     try {
+      if (!adminUser || !adminUser.email) {
+        throw new Error("Compte administrateur introuvable.");
+      }
+
+      // On utilise l'email de l'admin récupéré au chargement
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: adminEmail,
+        email: adminUser.email,
         password: adminPassword,
       });
 
       if (authError) throw authError;
 
-      const { data: userData, error: userError } = await supabase
-        .from('utilisateurs')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
-
-      if (userError || !userData) throw new Error("Profil introuvable.");
-      if (userData.role !== 'Administrateur') throw new Error("Accès refusé. Vous n'êtes pas administrateur.");
-
+      // Succès
       onLoginSuccess({
-        id: userData.id,
-        nom: userData.nom,
-        role: userData.role,
-        email: userData.email
+        id: adminUser.id,
+        nom: adminUser.nom,
+        role: adminUser.role,
+        email: adminUser.email
       });
 
     } catch (err) {
       console.error(err);
-      setAdminError(err.message || 'Identifiants administrateur incorrects.');
+      setAdminError('Mot de passe administrateur incorrect.');
     } finally {
       setAdminLoading(false);
     }
@@ -130,17 +129,13 @@ export default function Login({ onLoginSuccess }) {
         
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center mb-3">
-            {/* Le logo utilise une URL Supabase ou un chemin local avec un onError de secours */}
             <img 
               src={logoUrl} 
               alt="Logo" 
               className="h-24 w-auto object-contain" 
               onError={(e) => { 
-                if (e.target.src !== 'logo.png') {
-                  e.target.src = 'logo.png'; 
-                } else {
-                  e.target.style.display = 'none';
-                }
+                if (e.target.src !== 'logo.png') e.target.src = 'logo.png'; 
+                else e.target.style.display = 'none';
               }} 
             />
           </div>
@@ -154,7 +149,7 @@ export default function Login({ onLoginSuccess }) {
             <p className="text-slate-500 text-xs mt-0.5">Équipe commerciale</p>
           </div>
 
-          {/* LISTE DES COMMERCIAUX (SANS L'ADMIN) */}
+          {/* LISTE DES COMMERCIAUX */}
           <div className="space-y-2 mb-5 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
             {users.length === 0 ? (
               <div className="text-center py-8">
@@ -257,7 +252,7 @@ export default function Login({ onLoginSuccess }) {
           {/* BOUTON DISCRET POUR L'ACCÈS ADMIN */}
           <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col items-center gap-2">
             <button
-              onClick={() => { setShowAdminModal(true); setAdminError(''); }}
+              onClick={() => { setShowAdminModal(true); setAdminError(''); setAdminPassword(''); }}
               className="text-xs font-bold text-slate-400 hover:text-slate-800 transition flex items-center gap-1"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -267,7 +262,7 @@ export default function Login({ onLoginSuccess }) {
         </div>
       </div>
 
-      {/* MODALE D'ACCÈS ADMINISTRATEUR */}
+      {/* MODALE D'ACCÈS ADMINISTRATEUR SIMPLIFIÉE (PHOTO + MDP UNIQUEMENT) */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
@@ -279,36 +274,43 @@ export default function Login({ onLoginSuccess }) {
               <button onClick={() => setShowAdminModal(false)} className="text-slate-400 hover:text-white transition">✕</button>
             </div>
             
-            <form onSubmit={handleAdminSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Email administrateur</label>
-                <input 
-                  type="email" 
-                  required 
-                  value={adminEmail} 
-                  onChange={(e) => setAdminEmail(e.target.value)} 
-                  placeholder="admin@mpbt.sn" 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-slate-500" 
+            <form onSubmit={handleAdminSubmit} className="p-6 flex flex-col items-center">
+              
+              {/* PHOTO DE L'ADMIN */}
+              <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-slate-100 shadow-md mb-4 relative">
+                <img 
+                  src={getPhotoProfil(adminUser?.nom) || 'masse.png'} 
+                  alt="Admin" 
+                  className="w-full h-full object-cover" 
+                  onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
                 />
+                <div className="absolute inset-0 bg-slate-800 text-white hidden items-center justify-center font-bold text-2xl">
+                  {adminUser?.nom ? adminUser.nom.charAt(0) : 'M'}
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Mot de passe</label>
+              
+              <h4 className="text-lg font-bold text-slate-800 mb-1">{adminUser?.nom || 'Administrateur'}</h4>
+              <p className="text-xs text-slate-500 mb-6">{adminUser?.email || 'Chargement...'}</p>
+
+              <div className="w-full mb-4">
+                <label className="block text-xs font-bold text-slate-700 mb-1 text-center">Mot de passe</label>
                 <input 
                   type="password" 
                   required 
                   value={adminPassword} 
                   onChange={(e) => setAdminPassword(e.target.value)} 
                   placeholder="••••••••" 
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-slate-500" 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-center text-lg font-bold tracking-widest focus:ring-2 focus:ring-slate-500" 
+                  autoFocus
                 />
               </div>
 
-              {adminError && <p className="text-red-600 text-xs bg-red-50 p-2 rounded">{adminError}</p>}
+              {adminError && <p className="text-red-600 text-xs bg-red-50 p-2 rounded w-full text-center mb-3">{adminError}</p>}
 
               <button 
                 type="submit" 
-                disabled={adminLoading}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-lg transition disabled:bg-slate-400"
+                disabled={adminLoading || !adminUser}
+                className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-xl transition disabled:bg-slate-400"
               >
                 {adminLoading ? 'Connexion...' : 'Se connecter'}
               </button>
